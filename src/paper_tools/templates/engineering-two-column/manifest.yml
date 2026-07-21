@@ -1,0 +1,26 @@
+id: engineering-two-column
+name: 工学系2段組論文
+description: 工学系会議論文を想定した独自の汎用2段組テンプレートです．特定学会の公式様式ではありません．
+languages: [ja, en]
+document_types: [conference-paper, engineering-paper]
+sections:
+  - {id: abstract, title_ja: 概要, title_en: Abstract, purpose_ja: 要点を短くまとめます．, purpose_en: "Provide a compact summary."}
+  - {id: introduction, title_ja: はじめに, title_en: Introduction, purpose_ja: 背景と貢献を示します．, purpose_en: "Establish motivation and contributions."}
+  - {id: related-work, title_ja: 関連研究, title_en: Related Work, purpose_ja: 既存手法との差を示します．, purpose_en: "Contrast verified prior work."}
+  - {id: method, title_ja: 提案手法, title_en: Proposed Method, purpose_ja: 設計と数式を説明します．, purpose_en: "Explain the design and formulation."}
+  - {id: experiments, title_ja: 実験, title_en: Experiments, purpose_ja: 条件と評価を示します．, purpose_en: "Describe conditions and evaluation."}
+  - {id: results, title_ja: 結果, title_en: Results, purpose_ja: 定量結果を示します．, purpose_en: "Report supplied quantitative results."}
+  - {id: discussion, title_ja: 考察, title_en: Discussion, purpose_ja: 結果と制約を考察します．, purpose_en: "Discuss results and limitations."}
+  - {id: conclusion, title_ja: 結論, title_en: Conclusion, purpose_ja: 貢献をまとめます．, purpose_en: "Summarise contributions."}
+  - {id: references, title_ja: 参考文献, title_en: References, purpose_ja: 登録文献を示します．, purpose_en: "List registered references."}
+required_inputs: [title, objective, method]
+optional_inputs: [novelty, experimental_conditions, metrics, results, discussion, limitations]
+recommended_figures: [system architecture, experimental setup, result plots]
+recommended_tables: [baseline comparison, implementation parameters]
+recommended_data: [evaluation metrics, trial count, dispersion statistics]
+page: {paper: a4, margin_mm: 15, target_pages: 6}
+columns: 2
+fonts: {body: platform-default, heading: platform-default}
+version: 1.0.0
+intended_use: Compact engineering conference-style manuscripts
+original: true

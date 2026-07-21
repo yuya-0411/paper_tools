@@ -1,0 +1,22 @@
+#set page(paper: "a4", margin: (x: 19mm, y: 20mm))
+#set text(size: 10pt, lang: "{{ language }}"{% if english_region %}, region: "{{ english_region }}"{% endif %})
+#set par(justify: true, leading: 0.65em)
+#set heading(numbering: "1.")
+{% if citation_keys %}// paper-tools-citations:{% for citation_key in citation_keys %} @{{ citation_key }}{% endfor %}
+{% endif %}
+
+#align(center)[
+  #text(16pt, weight: "bold")[{{ title }}]
+  #v(7pt)
+  {% if authors %}{% for author in authors %}{{ author.name }}{% if author.affiliation %} ({{ author.affiliation }}){% endif %}{% if not loop.last %}{{ author_separator }}{% endif %}{% endfor %}{% else %}{{ author_placeholder }}{% endif %}
+]
+
+#block(fill: rgb("edf5f7"), inset: 9pt, radius: 3pt)[
+  *{{ abstract_label }}*\
+  {% if has_abstract %}#include "sections/abstract.typ"{% else %}{{ abstract }}{% endif %}
+
+  *{{ keywords_label }}:* {% for keyword in keywords %}{{ keyword }}{% if not loop.last %}{{ keyword_separator }}{% endif %}{% endfor %}
+]
+
+{% for section in sections %}#include "sections/{{ section.id }}.typ"
+{% endfor %}

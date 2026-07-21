@@ -1,0 +1,26 @@
+id: literature-review
+name: 文献レビュー
+description: 検索戦略，分類，比較，研究ギャップを追跡可能に記述する独自テンプレートです．
+languages: [ja, en]
+document_types: [literature-review, survey]
+sections:
+  - {id: abstract, title_ja: 概要, title_en: Abstract, purpose_ja: レビュー範囲を要約します．, purpose_en: "Summarise the review scope."}
+  - {id: introduction, title_ja: はじめに, title_en: Introduction, purpose_ja: 対象領域と問いを示します．, purpose_en: "Define the scope and review questions."}
+  - {id: search-strategy, title_ja: 検索戦略, title_en: Search Strategy, purpose_ja: データベースと選定基準を示します．, purpose_en: "Report databases and selection criteria."}
+  - {id: classification, title_ja: 文献の分類, title_en: Classification, purpose_ja: 文献の分類軸を示します．, purpose_en: "Define the classification scheme."}
+  - {id: comparison, title_ja: 比較, title_en: Comparison, purpose_ja: 手法と結果を比較します．, purpose_en: "Compare methods and reported evidence."}
+  - {id: research-gaps, title_ja: 研究ギャップ, title_en: Research Gaps, purpose_ja: 未解決課題を示します．, purpose_en: "Identify unresolved questions."}
+  - {id: discussion, title_ja: 考察, title_en: Discussion, purpose_ja: 傾向と限界を考察します．, purpose_en: "Discuss trends and review limitations."}
+  - {id: conclusion, title_ja: 結論, title_en: Conclusion, purpose_ja: 知見をまとめます．, purpose_en: "Summarise the evidence."}
+  - {id: references, title_ja: 参考文献, title_en: References, purpose_ja: 登録文献を示します．, purpose_en: "List registered references."}
+required_inputs: [title, objective, references]
+optional_inputs: [background, method, results, discussion, limitations]
+recommended_figures: [文献選定フロー, 分類体系図]
+recommended_tables: [文献比較表, 検索条件表]
+recommended_data: [検索式, 検索日, 採択除外基準]
+page: {paper: a4, margin_mm: 23, target_pages: 10}
+columns: 1
+fonts: {body: platform-default, heading: platform-default}
+version: 1.0.0
+intended_use: Structured literature reviews and surveys
+original: true

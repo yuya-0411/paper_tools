@@ -1,0 +1,27 @@
+id: research-proposal
+name: 研究計画書
+description: 研究課題，計画，期待結果，リスクを整理するための独自テンプレートです．
+languages: [ja, en]
+document_types: [research-proposal, grant-draft]
+sections:
+  - {id: abstract, title_ja: 概要, title_en: Executive Summary, purpose_ja: 計画全体を要約します．, purpose_en: "Summarise the proposed research."}
+  - {id: background, title_ja: 背景, title_en: Background, purpose_ja: 研究背景を示します．, purpose_en: "Establish the research context."}
+  - {id: problem, title_ja: 研究課題, title_en: Problem, purpose_ja: 解決すべき課題を示します．, purpose_en: "Define the problem."}
+  - {id: objectives, title_ja: 研究目的, title_en: Objectives, purpose_ja: 検証可能な目的を示します．, purpose_en: "State verifiable objectives."}
+  - {id: proposed-method, title_ja: 提案手法, title_en: Proposed Method, purpose_ja: 研究手法を示します．, purpose_en: "Explain the proposed method."}
+  - {id: research-plan, title_ja: 研究計画, title_en: Research Plan, purpose_ja: 実施手順を示します．, purpose_en: "Describe the work plan."}
+  - {id: expected-results, title_ja: 期待される結果, title_en: Expected Results, purpose_ja: 期待を仮説として示します．, purpose_en: "State expected outcomes as hypotheses, not facts."}
+  - {id: risks, title_ja: リスク, title_en: Risks, purpose_ja: リスクと代替策を示します．, purpose_en: "Identify risks and contingencies."}
+  - {id: schedule, title_ja: スケジュール, title_en: Schedule, purpose_ja: 実施時期を示します．, purpose_en: "Provide a research schedule."}
+  - {id: references, title_ja: 参考文献, title_en: References, purpose_ja: 登録文献を示します．, purpose_en: "List registered references."}
+required_inputs: [title, background, problem, objective, method]
+optional_inputs: [novelty, experimental_conditions, metrics, limitations, future_work]
+recommended_figures: [研究全体図, 実施フロー]
+recommended_tables: [研究スケジュール, リスク管理表]
+recommended_data: [評価指標, マイルストーン, 必要資源]
+page: {paper: a4, margin_mm: 24, target_pages: 8}
+columns: 1
+fonts: {body: platform-default, heading: platform-default}
+version: 1.0.0
+intended_use: Research proposals without presenting expected results as observed facts
+original: true

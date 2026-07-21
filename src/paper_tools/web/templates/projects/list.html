@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}プロジェクト — paper_tools{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div><p class="eyebrow">Projects</p><h1>論文プロジェクト</h1><p class="muted">原稿，履歴，図表，参考文献をローカルに保存します．</p></div>
+  <a class="button button-primary" href="/projects/new">新規作成</a>
+</header>
+{% if projects %}
+<div class="stack">
+  {% for project in projects %}
+  <article class="project-row">
+    <div><a class="project-title" href="/projects/{{ project.id }}">{{ project.name }}</a><div class="small muted">{{ project.title or 'タイトル未設定' }}</div></div>
+    <span>{{ project.language|upper }}</span><span>{{ project.template_id }}</span><span>{{ project.updated_at_display }}</span>
+    <span class="badge">{{ project.status_label }} · PDF {{ project.pdf_status }} · 助言 {{ project.unresolved_advice_count }}</span>
+    <div class="cluster"><a class="button button-small" href="/projects/{{ project.id }}">開く</a><form method="post" action="/projects/{{ project.id }}/duplicate"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="button button-small" type="submit">複製</button></form><a class="button button-small" href="/projects/{{ project.id }}/export">ZIP</a><a class="button button-small button-danger" href="/projects/{{ project.id }}/delete">削除</a></div>
+  </article>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card"><h2>プロジェクトがありません</h2><p class="muted">日本語・英語の8種類の独自テンプレートから開始できます．</p><a class="button button-primary" href="/projects/new">新しい論文を作成</a></div>
+{% endif %}
+{% endblock %}

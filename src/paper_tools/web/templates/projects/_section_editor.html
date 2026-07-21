@@ -1,0 +1,16 @@
+{% if selected_section %}
+<div x-show="!sourceMode">
+  <div class="page-header"><div><p class="eyebrow">Section {{ selected_section.position + 1 }}</p><h1>{{ selected_section.title }}</h1></div><form hx-post="/projects/{{ project.id }}/sections/{{ selected_section.id }}/regenerate" hx-target="#job-status"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="button button-small" type="submit">このセクションを再生成</button></form></div>
+  <details class="section-block"><summary><strong>選択した文章を変換</strong></summary><p class="small muted">下の本文欄で変換する範囲を選択してから操作を選んでください．選択範囲以外は保持されます．</p><form class="cluster section-block" hx-post="/projects/{{ project.id }}/sections/{{ selected_section.id }}/transform" hx-target="#job-status" data-selection-transform data-selection-source="section-content"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="selection_start"><input type="hidden" name="selection_end"><input type="hidden" name="selected_text">{% for value, label in [('improve','改善'),('shorten','短縮'),('expand','詳細化'),('academic','学術表現'),('translate-en','英文化'),('translate-ja','日本語化'),('prose','箇条書き→文章'),('bullets','文章→箇条書き')] %}<button class="button button-small" type="submit" name="operation" value="{{ value }}" {% if not llm_enabled %}disabled title="OllamaまたはOpenAI互換プロバイダーの設定が必要です"{% endif %}>{{ label }}</button>{% endfor %}</form>{% if not llm_enabled %}<p class="small muted">文章変換はLLM設定時だけ利用できます．通常編集・再生成・Typst生成は引き続き利用できます．</p>{% endif %}</details>
+  <form hx-post="/projects/{{ project.id }}/sections/{{ selected_section.id }}" hx-trigger="input changed delay:1200ms, submit" hx-target="#save-result" hx-swap="innerHTML" data-save-status="save-status">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="field"><label for="section-content">本文</label><textarea class="long" id="section-content" name="content">{{ selected_section.content }}</textarea></div>
+    <div class="field section-block"><label for="section-instruction">このセクションへの指示</label><textarea id="section-instruction" name="instruction">{{ selected_section.instruction }}</textarea></div>
+    <div class="form-actions"><div class="cluster"><button class="button button-primary" type="submit">保存</button><button class="button" type="submit" name="create_snapshot" value="1">版を保存</button></div><span id="save-result" class="small muted" aria-live="polite"></span></div>
+  </form>
+</div>
+<div x-show="sourceMode" x-cloak>
+  <p class="eyebrow">Typst source</p><h1>Typstソース</h1><div class="notice notice-error"><strong>上級者向け：</strong>直接編集前に自動で履歴を作成します．任意コードやプロジェクト外へのパスは使用できません．</div>
+  <form class="section-block" hx-post="/projects/{{ project.id }}/source" hx-trigger="input changed delay:1500ms, submit" hx-target="#source-save-result" data-save-status="save-status"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><textarea class="source" name="source" spellcheck="false">{{ typst_source }}</textarea><div class="form-actions"><button class="button button-primary" type="submit">ソースを保存</button><span id="source-save-result" class="small muted"></span></div></form>
+</div>
+{% else %}<div class="notice">セクションがありません．全体生成を実行してください．</div>{% endif %}

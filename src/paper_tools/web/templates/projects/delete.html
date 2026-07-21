@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block title %}削除確認 — paper_tools{% endblock %}
+{% block page_class %}page-narrow{% endblock %}
+{% block content %}
+<div class="card"><p class="eyebrow">Delete project</p><h1>「{{ project.name }}」を削除しますか</h1><p class="lead">プロジェクトは一覧とデータベースから削除され，原稿，履歴，アップロード，生成PDFはローカルのtrashディレクトリへ退避されます．画面からは元に戻せません．</p><form method="post" action="/projects/{{ project.id }}/delete"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><div class="cluster"><button class="button button-danger" type="submit">削除する</button><a class="button" href="/projects/{{ project.id }}">キャンセル</a></div></form></div>
+{% endblock %}

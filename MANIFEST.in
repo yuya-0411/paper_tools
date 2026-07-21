@@ -1,0 +1,15 @@
+include README.md CHANGELOG.md CONTRIBUTING.md
+include .env.example .editorconfig .gitignore .pre-commit-config.yaml
+include index.html START_HERE.html START_PAPER_TOOLS.cmd
+include alembic.ini
+graft scripts
+graft site
+graft docs
+graft examples
+graft src/paper_tools/templates
+graft src/paper_tools/web/templates
+graft src/paper_tools/web/static
+graft migrations
+graft tests
+graft .github/workflows
+global-exclude __pycache__ *.py[cod] .DS_Store

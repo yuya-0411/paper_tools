@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="390" viewBox="0 0 900 390" role="img" aria-labelledby="title desc">
+  <title id="title">Synthetic thermal actuator benchmark</title>
+  <desc id="desc">Original block diagram showing target, controller, simulated plant, sensor, and logger</desc>
+  <rect width="900" height="390" fill="#f7f9fb"/>
+  <g font-family="sans-serif" text-anchor="middle" fill="#17212b">
+    <circle cx="115" cy="130" r="45" fill="#ffffff" stroke="#40566d" stroke-width="3"/>
+    <text x="115" y="121" font-size="18">Target</text>
+    <text x="115" y="146" font-size="18">50 C</text>
+    <rect x="240" y="80" width="185" height="100" rx="13" fill="#dfeafa" stroke="#35689a" stroke-width="3"/>
+    <text x="332" y="122" font-size="23">Bounded-gain</text>
+    <text x="332" y="151" font-size="19">controller</text>
+    <rect x="535" y="80" width="185" height="100" rx="13" fill="#e4f2e7" stroke="#3d7e4e" stroke-width="3"/>
+    <text x="627" y="122" font-size="23">Synthetic</text>
+    <text x="627" y="151" font-size="19">thermal plant</text>
+    <rect x="535" y="260" width="185" height="80" rx="13" fill="#fff0d5" stroke="#9b6b18" stroke-width="3"/>
+    <text x="627" y="309" font-size="22">CSV logger</text>
+  </g>
+  <g fill="none" stroke="#394b59" stroke-width="4" marker-end="url(#arrow)">
+    <path d="M160 130 H235"/>
+    <path d="M425 130 H530"/>
+    <path d="M720 130 H790 V220 H205 V155"/>
+    <path d="M627 185 V255"/>
+  </g>
+  <text x="476" y="113" font-family="sans-serif" font-size="17" text-anchor="middle" fill="#394b59">command</text>
+  <text x="480" y="240" font-family="sans-serif" font-size="17" text-anchor="middle" fill="#394b59">synthetic temperature feedback</text>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#394b59"/>
+    </marker>
+  </defs>
+  <text x="450" y="375" text-anchor="middle" font-family="sans-serif" font-size="16" fill="#536475">paper_tools original synthetic sample</text>
+</svg>

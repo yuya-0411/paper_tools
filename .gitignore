@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Environments and secrets
+.venv/
+.paper-tools-venv/
+venv/
+.env
+.env.*
+!.env.example
+
+# Packaging
+build/
+dist/
+
+# Runtime state
+.paper-tools/
+paper_tools.db
+*.sqlite
+*.sqlite3
+/projects/
+
+# Editors and operating systems
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# Example and local generated output
+examples/*/output/
+examples/**/*.pdf
+examples/**/*.zip

@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}paper_tools — Typst論文作成支援{% endblock %}
+{% block content %}
+<section class="hero">
+  <div>
+    <p class="eyebrow">Local-first academic writing</p>
+    <h1>研究情報を，検証可能な<br>Typst原稿へ．</h1>
+    <p class="lead">入力された事実だけを整理し，不足情報を明示しながら，構成案，本文，Typstソース，PDFまでをローカルで作成します．</p>
+    <div class="cluster hero-actions">
+      <a class="button button-primary" href="/projects/new">新しい論文を作成</a>
+      <a class="button" href="/projects">保存済みプロジェクト</a>
+    </div>
+  </div>
+  <aside class="status-board" aria-label="利用環境">
+    <h2>現在の環境</h2>
+    <div class="status-row"><span>Typst CLI</span><span class="status-value badge {{ 'badge-success' if typst.available else 'badge-warning' }}">{{ typst.label }}</span></div>
+    <div class="status-row"><span>文章生成</span><span class="status-value">{{ provider_label }}</span></div>
+    <div class="status-row"><span>保存先</span><span class="status-value">ローカルSQLite</span></div>
+    {% if not typst.available %}<p class="small muted">Typstがなくても原稿生成と編集は利用できます．PDF出力だけが無効です．</p>{% endif %}
+  </aside>
+</section>
+
+<section class="section-block" aria-labelledby="recent-title">
+  <div class="page-header">
+    <div><p class="eyebrow">Recent work</p><h2 id="recent-title">最近のプロジェクト</h2></div>
+    <a href="/projects">すべて表示</a>
+  </div>
+  {% if projects %}
+  <div class="stack">
+    {% for project in projects %}
+    <article class="project-row">
+      <div><a class="project-title" href="/projects/{{ project.id }}">{{ project.name }}</a><div class="small muted">{{ project.title or 'タイトル未設定' }}</div></div>
+      <span>{{ project.language|upper }}</span><span>{{ project.template_id }}</span><span>{{ project.updated_at_display }}</span>
+      <span class="badge {{ 'badge-success' if project.status == 'completed' else '' }}">{{ project.status_label }}</span>
+      <a class="button button-small" href="/projects/{{ project.id }}">開く</a>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="card"><h3>まだプロジェクトがありません</h3><p class="muted">研究メモだけでも構成案を作成できます．入力していない事実は自動で補いません．</p><a class="button button-primary" href="/projects/new">最初のプロジェクトを作成</a></div>
+  {% endif %}
+</section>
+
+<section class="section-block" aria-labelledby="steps-title">
+  <p class="eyebrow">Workflow</p><h2 id="steps-title">3つの手順</h2>
+  <div class="card-grid">
+    <article class="card"><h3>1．研究情報を入力</h3><p class="muted">簡単な説明と箇条書きだけでも開始できます．詳細は後から追記できます．</p></article>
+    <article class="card"><h3>2．構成と本文を生成</h3><p class="muted">ローカルのルールベース生成を既定とし，不足内容は検索可能なプレースホルダーにします．</p></article>
+    <article class="card"><h3>3．助言を確認して出力</h3><p class="muted">不足する図，データ，実験条件，引用を確認し，TypstソースやPDF，ZIPを保存します．</p></article>
+  </div>
+</section>
+{% endblock %}

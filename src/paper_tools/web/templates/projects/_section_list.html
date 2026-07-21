@@ -1,0 +1,5 @@
+<ol id="section-list" class="section-list" hx-get="/projects/{{ project.id }}/section-list" hx-trigger="paperAdviceChanged from:body" hx-swap="outerHTML">
+  {% for section in sections %}
+  <li><a class="section-link {% if selected_section and section.id == selected_section.id %}active{% endif %}" data-section-slug="{{ section.id }}" href="/projects/{{ project.id }}?section={{ section.id }}" hx-get="/projects/{{ project.id }}/sections/{{ section.id }}" hx-target="#editor-main" hx-push-url="/projects/{{ project.id }}?section={{ section.id }}"><span>{{ section.title }}</span><span class="cluster section-state"><span class="badge {{ section.completion_class }}">{{ section.completion_label }}</span>{% if section.advice_count %}<span class="badge" title="未解決の助言">{{ section.advice_count }}</span>{% endif %}</span></a></li>
+  {% endfor %}
+</ol>

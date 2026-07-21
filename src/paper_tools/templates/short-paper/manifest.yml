@@ -1,0 +1,23 @@
+id: short-paper
+name: 短報
+description: 4～6ページ程度で単一の貢献を簡潔に報告するための独自テンプレートです．
+languages: [ja, en]
+document_types: [short-paper, technical-note]
+sections:
+  - {id: abstract, title_ja: 概要, title_en: Abstract, purpose_ja: 貢献を要約します．, purpose_en: "Summarise the single contribution."}
+  - {id: introduction, title_ja: はじめに, title_en: Introduction, purpose_ja: 課題と目的を簡潔に示します．, purpose_en: "Briefly state the problem and objective."}
+  - {id: proposed-approach, title_ja: 提案アプローチ, title_en: Proposed Approach, purpose_ja: 核となる手法を示します．, purpose_en: "Describe the core approach."}
+  - {id: evaluation, title_ja: 評価, title_en: Evaluation, purpose_ja: 条件，指標，結果を示します．, purpose_en: "Report conditions, metrics, and supplied results."}
+  - {id: conclusion, title_ja: 結論, title_en: Conclusion, purpose_ja: 貢献と限界をまとめます．, purpose_en: "Summarise the contribution and limitations."}
+  - {id: references, title_ja: 参考文献, title_en: References, purpose_ja: 登録文献を示します．, purpose_en: "List registered references."}
+required_inputs: [title, objective, method]
+optional_inputs: [background, novelty, experimental_conditions, metrics, results, limitations]
+recommended_figures: [提案手法の概要図, 主要結果グラフ]
+recommended_tables: [主要比較表]
+recommended_data: [主要評価値, 比較条件]
+page: {paper: a4, margin_mm: 18, target_pages: 5}
+columns: 1
+fonts: {body: platform-default, heading: platform-default}
+version: 1.0.0
+intended_use: Focused short papers and technical notes
+original: true

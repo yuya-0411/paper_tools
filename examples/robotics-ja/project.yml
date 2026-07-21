@@ -1,0 +1,75 @@
+version: 1
+project:
+  name: demo-robotics-ja
+  title: 反射強度を用いた小型移動ロボットの停止制御
+  language: ja
+  paper_type: robotics-experiment
+  template_id: robotics-experiment
+  target_pages: 6
+  audience: ロボティクスを学ぶ学生と技術者
+  target_venue_note: デモ用の汎用会議論文を想定しており，特定学会とは無関係である．
+  punctuation: "，．"
+authors:
+  - name: デモ著者
+    affiliation: paper_tools 架空研究室
+    email: demo@example.invalid
+    orcid: null
+    corresponding: true
+    order: 1
+research:
+  summary: >-
+    床面の反射強度を測る前方センサを持つ小型移動ロボットについて，
+    閾値を超えたときに減速して停止する単純な制御則を検討する．
+  bullet_notes:
+    - 低価格な反射センサを2個使用する
+    - 目標線の手前で滑らかに減速する
+    - 8回の停止試行を行った
+    - 記録値はすべてデモ用の合成データである
+  achieved: 合成試験では全8回が許容範囲内で停止した．
+  key_message: 単純な二段階減速でも再現可能な評価手順を組み立てられる．
+  background: 教育用ロボットでは，複雑な外部計測を使わず停止位置を評価したい場合がある．
+  current_problem: 反射強度は床材と照明の影響を受けるため，固定閾値だけでは停止位置が変動する．
+  objective: 反射強度に基づく二段階減速則の停止誤差を，合成データを用いて記述する．
+  novelty: ""
+  proposed_method: 左右センサの平均強度に二つの閾値を設定し，通常走行，減速，停止を切り替える．
+  system_configuration: 二輪移動台車，左右の反射センサ，motor controller，local loggerで構成する．
+  experimental_conditions: 速度0.25 m/s，平坦な白色床面，停止線幅40 mm，8試行という架空条件である．
+  evaluation_metrics: 停止線中心から車体基準点までの符号付き停止誤差mmとする．
+  results: 合成データの絶対誤差平均は約6.1 mmであり，全試行が10 mm以内であった．
+  discussion: 閾値周辺のsensor noiseと床面状態が誤差要因となり得る．
+  limitations: 単一床面の合成データだけであり，実機性能を示さない．
+  conclusion: 二段階減速則を記述する最小構成と評価例を示した．
+  future_work: 実機，複数床材，照明変化，従来手法との比較が必要である．
+keywords:
+  - 移動ロボット
+  - 反射センサ
+  - 停止制御
+  - 合成データ
+instructions:
+  global:
+    - である調と句読点「，．」を使用する
+    - 実験結果が合成データであることを各関連sectionで明示する
+    - 未入力の比較結果とreferenceを推測しない
+  sections:
+    discussion: 成功例だけでなく，床材と照明への制約を明示する．
+assets:
+  - path: figures/system-overview.svg
+    display_name: システム構成図
+    description: 小型移動ロボットのsensor，controller，motorの信号経路を示すoriginal SVG．
+    purpose: システム構成の説明
+    target_section: system-design
+    source: paper_tools sampleで独自作成
+    ownership: original
+  - path: data/trials.csv
+    display_name: 停止試行データ
+    description: software demonstration用に生成した8回の合成停止誤差．
+    purpose: 結果表
+    target_section: results
+    source: 合成データ
+    ownership: original
+references: []
+missing_for_demo:
+  - 従来手法またはbaselineとの比較
+  - 標準偏差または信頼区間
+  - 実験環境の写真
+  - 主張を支える実在reference

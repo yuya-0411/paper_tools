@@ -1,0 +1,27 @@
+id: experiment-report
+name: 実験報告書
+description: 装置，条件，手順，結果，分析を再現可能に記録する独自テンプレートです．
+languages: [ja, en]
+document_types: [experiment-report, laboratory-report]
+sections:
+  - {id: abstract, title_ja: 要約, title_en: Summary, purpose_ja: 実験を要約します．, purpose_en: "Summarise the experiment."}
+  - {id: objective, title_ja: 目的, title_en: Objective, purpose_ja: 実験目的を示します．, purpose_en: "State the experimental objective."}
+  - {id: equipment, title_ja: 使用機器, title_en: Equipment, purpose_ja: 使用機器を示します．, purpose_en: "List the equipment."}
+  - {id: conditions, title_ja: 実験条件, title_en: Conditions, purpose_ja: 条件と設定値を示します．, purpose_en: "Record conditions and settings."}
+  - {id: procedure, title_ja: 手順, title_en: Procedure, purpose_ja: 実験手順を示します．, purpose_en: "Describe the procedure."}
+  - {id: results, title_ja: 結果, title_en: Results, purpose_ja: 測定結果を示します．, purpose_en: "Report measured results."}
+  - {id: analysis, title_ja: 分析, title_en: Analysis, purpose_ja: 結果を分析します．, purpose_en: "Analyse the supplied results."}
+  - {id: problems, title_ja: 問題点, title_en: Problems, purpose_ja: 問題と誤差要因を示します．, purpose_en: "Discuss problems and error sources."}
+  - {id: conclusion, title_ja: 結論, title_en: Conclusion, purpose_ja: 結論をまとめます．, purpose_en: "Summarise the conclusion."}
+  - {id: references, title_ja: 参考資料, title_en: References, purpose_ja: 登録資料を示します．, purpose_en: "List registered references."}
+required_inputs: [title, objective, experimental_conditions, method]
+optional_inputs: [system_design, metrics, results, discussion, limitations]
+recommended_figures: [実験装置図, 実験配置図, 結果グラフ]
+recommended_tables: [実験条件表, 測定結果表]
+recommended_data: [機器仕様, 設定値, 生データ, 試行回数]
+page: {paper: a4, margin_mm: 22, target_pages: 6}
+columns: 1
+fonts: {body: platform-default, heading: platform-default}
+version: 1.0.0
+intended_use: Reproducible laboratory and experiment reports
+original: true

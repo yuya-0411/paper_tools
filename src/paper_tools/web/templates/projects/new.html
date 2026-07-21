@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}新しい論文 — paper_tools{% endblock %}
+{% block page_class %}page-narrow{% endblock %}
+{% block content %}
+<header><p class="eyebrow">New project</p><h1>新しい論文を作成</h1><p class="lead">分かる範囲だけ入力してください．不足している事実は推測せず，後で追加できる形にします．</p></header>
+<form class="card section-block" method="post" action="/projects" enctype="multipart/form-data" x-data="wizard" novalidate @submit="validateBeforeSubmit($event)">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <div class="wizard-progress" aria-label="作成手順">
+    {% for label in ['基本情報','著者','研究内容','図・データ','詳細指示'] %}
+    <div class="wizard-step" :class="{active: step >= {{ loop.index }}}"><span>{{ loop.index }}．{{ label }}</span></div>
+    {% endfor %}
+  </div>
+  <div class="notice cluster cluster-spread"><span x-text="draftStatus" role="status">未保存</span><div class="cluster"><button class="button button-small" type="button" @click="saveDraft">この端末に途中保存</button><button class="button button-small button-quiet" type="button" @click="clearDraft">下書きを消去</button></div><span class="small muted">ファイルとAPIキーは途中保存しません．</span></div>
+
+  <section x-show="step === 1" data-wizard-step="1" aria-labelledby="step1-title">
+    <h2 id="step1-title">1．基本情報</h2>
+    <div class="field-grid">
+      <div class="field"><label for="name">プロジェクト名<span aria-hidden="true"> *</span></label><input id="name" name="name" required maxlength="120" autocomplete="off"></div>
+      <div class="field"><label for="title">論文タイトル</label><input id="title" name="title" maxlength="300"></div>
+      <div class="field"><label for="language">出力言語</label><select id="language" name="language"><option value="ja">日本語</option><option value="en">English</option></select></div>
+      <div class="field"><label for="paper_type">論文種別</label><select id="paper_type" name="paper_type"><option value="research-paper">研究論文</option><option value="short-paper">短報</option><option value="review">文献レビュー</option><option value="proposal">研究計画書</option><option value="report">実験報告書</option></select></div>
+      <div class="field"><label for="research_field">研究分野</label><input id="research_field" name="research_field" placeholder="例：ロボティクス，制御工学"></div>
+      <div class="field"><label for="template_id">テンプレート</label><select id="template_id" name="template_id">{% for template in templates %}<option value="{{ template.id }}" {% if template.id == selected_template_id %}selected{% endif %}>{{ template.name }}</option>{% endfor %}</select></div>
+      <div class="field"><label for="page_target">ページ数の目安</label><input id="page_target" name="page_target" type="number" min="1" max="1000"></div>
+      <div class="field"><label for="audience">対象読者</label><input id="audience" name="audience"></div>
+      <div class="field-full"><label for="venue_note">投稿先のメモ</label><textarea id="venue_note" name="venue_note"></textarea></div>
+    </div>
+  </section>
+
+  <section x-show="step === 2" x-cloak data-wizard-step="2" aria-labelledby="step2-title">
+    <h2 id="step2-title">2．著者情報</h2>
+    <div x-data="authorRows()" class="stack">
+      <template x-for="(author, index) in authors" :key="author._key">
+        <fieldset class="card">
+          <legend x-text="`著者 ${index + 1}`"></legend><div class="cluster cluster-spread"><span></span><div class="cluster"><button class="button button-small button-quiet" type="button" @click="move(index,-1)" :disabled="index===0">上へ</button><button class="button button-small button-quiet" type="button" @click="move(index,1)" :disabled="index===authors.length-1">下へ</button><button class="button button-small button-danger" type="button" @click="remove(index)" :disabled="authors.length===1">削除</button></div></div>
+          <div class="field-grid">
+            <div class="field"><label :for="'new-author-name-' + author._key">著者名</label><input :id="'new-author-name-' + author._key" name="author_name" x-model="author.name"></div>
+            <div class="field"><label :for="'new-author-affiliation-' + author._key">所属</label><input :id="'new-author-affiliation-' + author._key" name="author_affiliation" x-model="author.affiliation"></div>
+            <div class="field"><label :for="'new-author-email-' + author._key">メール</label><input :id="'new-author-email-' + author._key" name="author_email" type="email" x-model="author.email"></div>
+            <div class="field"><label :for="'new-author-orcid-' + author._key">ORCID</label><input :id="'new-author-orcid-' + author._key" name="author_orcid" x-model="author.orcid" placeholder="0000-0000-0000-0000"></div>
+            <label class="checkbox field-full"><input name="author_corresponding" type="checkbox" :value="index" x-model="author.corresponding">連絡著者</label>
+          </div>
+        </fieldset>
+      </template>
+      <button class="button" type="button" @click="add()">著者を追加</button>
+    </div>
+  </section>
+
+  <section x-show="step === 3" x-cloak data-wizard-step="3" aria-labelledby="step3-title">
+    <h2 id="step3-title">3．研究内容</h2>
+    <p class="muted">簡易入力だけでも構成を生成できます．詳細欄は空のままでも構いません．</p>
+    <div class="field-grid">
+      <div class="field-full"><label for="summary">研究内容の簡単な説明</label><textarea class="long" id="summary" name="summary"></textarea></div>
+      <div class="field-full"><label for="notes">箇条書きメモ</label><textarea id="notes" name="notes" placeholder="1行に1項目"></textarea></div>
+      <div class="field"><label for="achievement">研究で実現したこと</label><textarea id="achievement" name="achievement"></textarea></div>
+      <div class="field"><label for="key_message">最も伝えたい点</label><textarea id="key_message" name="key_message"></textarea></div>
+      <label class="checkbox field-full"><input type="checkbox" name="show_detailed" value="1" x-model="detailed">詳細入力を表示する</label>
+      <div class="field-full" x-show="detailed" x-cloak><div class="field-grid">
+      {% for field, label in [('background','背景'),('problem','現在の課題'),('objective','研究目的'),('novelty','新規性'),('method','提案手法'),('system_design','システム構成'),('experimental_conditions','実験条件'),('metrics','評価指標'),('results','実験結果'),('discussion','考察'),('limitations','制約・限界'),('conclusion','結論'),('future_work','今後の課題')] %}
+      <div class="field"><label for="{{ field }}">{{ label }}</label><textarea id="{{ field }}" name="{{ field }}"></textarea></div>
+      {% endfor %}
+      </div></div>
+      <div class="field-full"><label for="keywords">キーワード</label><input id="keywords" name="keywords" placeholder="カンマ区切り"></div>
+    </div>
+  </section>
+
+  <section x-show="step === 4" x-cloak data-wizard-step="4" aria-labelledby="step4-title">
+    <h2 id="step4-title">4．図・表・データ</h2>
+    <div class="notice">PNG，JPEG，SVG，PDF，CSV，JSON，TXT，YAMLを登録できます．ファイル名は安全な内部名へ変換されます．</div>
+    <div class="field-grid section-block">
+      <div class="field-full"><label for="assets">ファイル</label><input id="assets" name="assets" type="file" multiple accept=".png,.jpg,.jpeg,.svg,.pdf,.csv,.json,.txt,.yml,.yaml"><span class="hint">1ファイル最大 {{ upload_limit }}．作成後も追加できます．</span></div>
+      <div class="field"><label for="asset_description">説明</label><textarea id="asset_description" name="asset_description"></textarea></div>
+      <div class="field"><label for="asset_purpose">論文中での用途</label><textarea id="asset_purpose" name="asset_purpose"></textarea></div>
+      <div class="field"><label for="asset_section">使用予定セクション</label><input id="asset_section" name="asset_section"></div>
+      <div class="field"><label for="asset_source">出典</label><input id="asset_source" name="asset_source"></div>
+      <label class="checkbox field-full"><input name="asset_is_original" type="checkbox" value="1" checked>自作資料である</label>
+    </div>
+  </section>
+
+  <section x-show="step === 5" x-cloak data-wizard-step="5" aria-labelledby="step5-title">
+    <h2 id="step5-title">5．詳細指示</h2>
+    <div class="field-grid">
+      <div class="field-full"><label for="overall_instruction">論文全体への指示</label><textarea class="long" id="overall_instruction" name="overall_instruction" placeholder="例：過度な主張を避け，実験条件を詳しく説明する．"></textarea></div>
+      <div class="field-full"><span class="field-label">指示プリセット</span><div class="cluster">{% for preset in presets %}<label class="checkbox"><input type="checkbox" name="presets" value="{{ preset.id }}">{{ preset.label }}</label>{% endfor %}</div></div>
+      <div class="field-full"><label for="section_instructions">セクションごとの指示</label><textarea class="long" id="section_instructions" name="section_instructions" placeholder="introduction: 新規性を最後に明示する&#10;discussion: 失敗条件を説明する"></textarea></div>
+      <div class="field"><label for="provider">初回生成プロバイダー</label><select id="provider" name="provider"><option value="rule-based">ルールベース（外部送信なし）</option><option value="ollama">Ollama（接続失敗時はルールベースへ戻る）</option><option value="openai-compatible">OpenAI互換API（外部送信）</option></select><span class="hint">作成後の生成プロバイダーは設定画面で切り替えられます．</span></div>
+    </div>
+  </section>
+
+  <div class="form-actions">
+    <button class="button" type="button" @click="previous" :disabled="step === 1">戻る</button>
+    <button class="button button-primary" type="button" @click="next" x-show="step < total">次へ</button>
+    <button class="button button-primary" type="submit" x-show="step === total" x-cloak>プロジェクトを作成して構成を生成</button>
+  </div>
+</form>
+{% endblock %}
