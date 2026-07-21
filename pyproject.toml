@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "paper-tools"
-version = "0.1.0"
+version = "0.2.0"
 description = "ローカルファーストのTypst論文作成支援Webアプリケーション"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -42,6 +42,11 @@ dev = [
   "ruff>=0.7,<1",
   "types-PyYAML>=6.0,<7",
 ]
+desktop = [
+  "pillow>=11,<13",
+  "pyinstaller>=6.15,<7",
+  "pystray>=0.19.5,<1",
+]
 
 [project.scripts]
 paper-tools = "paper_tools.cli:main"
@@ -67,6 +72,7 @@ paper_tools = [
 [tool.pytest.ini_options]
 addopts = "-ra --strict-markers --strict-config"
 testpaths = ["tests"]
+pythonpath = ["."]
 markers = ["typst: requires the local Typst CLI"]
 
 [tool.coverage.run]
@@ -106,5 +112,5 @@ files = ["src"]
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["yaml", "yaml.*"]
+module = ["pystray", "pystray.*", "yaml", "yaml.*"]
 ignore_missing_imports = true

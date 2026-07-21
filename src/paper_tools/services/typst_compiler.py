@@ -26,6 +26,12 @@ _MAX_ERROR_LINE_BYTES = 2_000
 _MAX_ERROR_TOTAL_BYTES = 20_000
 
 
+def _creation_flags() -> int:
+    """Prevent the bundled Typst process from flashing a console on Windows."""
+
+    return subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+
+
 class CompileCancelledError(Exception):
     """Raised in the compiler thread after a requested cancellation is complete."""
 
@@ -153,6 +159,7 @@ class TypstCompileService:
                 text=True,
                 timeout=min(self.timeout, 5.0),
                 check=False,
+                creationflags=_creation_flags(),
             )
         except (OSError, subprocess.SubprocessError):
             return None
@@ -318,6 +325,7 @@ class TypstCompileService:
                 text=True,
                 timeout=self.timeout,
                 check=False,
+                creationflags=_creation_flags(),
             )
             if cancellation is not None:
                 cancellation.raise_if_cancelled()
@@ -331,6 +339,7 @@ class TypstCompileService:
             text=True,
             encoding="utf-8",
             errors="replace",
+            creationflags=_creation_flags(),
         )
         if cancellation is not None and not cancellation.attach_process(process):
             self._stop_process(process)

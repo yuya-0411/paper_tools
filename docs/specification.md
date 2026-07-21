@@ -1,4 +1,4 @@
-# paper_tools 0.1.0 仕様書
+# paper_tools 0.2.0 仕様書
 
 ## 1．目的と対象ユーザー
 
@@ -61,7 +61,7 @@
 
 ## 3．非機能要件
 
-- Python 3.11以上，FastAPI，Jinja2，HTMX，Alpine.js，独自CSS，SQLite，SQLAlchemy 2系を用いる
+- 内部実装はPython 3.11以上，FastAPI，Jinja2，HTMX，Alpine.js，独自CSS，SQLite，SQLAlchemy 2系とし，Windows配布版には実行環境を同梱する
 - React等の大型SPA，Electron，外部CDNを必須にしない
 - internet，account，有料API，Dockerなしで基本機能を利用できる
 - UIはkeyboard操作，label，focus，色以外の状態表示，responsive layoutを備える

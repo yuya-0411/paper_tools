@@ -2,6 +2,23 @@
 
 利用者に影響する変更を記録する．版番号はSemantic Versioningに従う．
 
+## [0.2.0] - 2026-07-22
+
+### 追加
+
+- Pythonランタイム，依存ライブラリ，公式Typst CLIを同梱する自己完結Windows x64版．
+- ブラウザ自動表示，二重起動防止，ポート競合回避，通知領域からの再表示・正常終了．
+- PyInstaller one-folder，Inno Setupインストーラー，ポータブルZIP，SHA-256一覧の自動生成．
+- `v*` タグからGitHub Releaseへ配布物を公開するWindowsワークフロー．
+- GitHub Releasesを入口にするGitHub Pages向け静的ページと手動デプロイワークフロー．
+- 凍結済みWeb資産，SQLite，同梱Typst，PDF生成を確認するデスクトップセルフテスト．
+
+### 変更
+
+- CIを `uv.lock` 準拠へ変更し，LinuxとWindowsで同じ依存関係を使用する．
+- Git属性でソースをLF，Windows起動スクリプトをCRLFに固定する．
+- `START_PAPER_TOOLS.cmd` は一般利用者向けではなく，ソース開発者向け互換手段とする．
+
 ## [0.1.0] - 2026-07-21
 
 ### 追加

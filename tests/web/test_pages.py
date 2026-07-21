@@ -26,7 +26,7 @@ def test_home_templates_settings_and_security_headers(web_app: WebHarness) -> No
 
     health = web_app.client.get("/healthz")
     assert health.status_code == 200
-    assert health.json() == {"app": "paper_tools", "status": "ok", "version": "0.1.0"}
+    assert health.json() == {"app": "paper_tools", "status": "ok", "version": "0.2.0"}
 
     templates = web_app.client.get("/templates")
     assert templates.status_code == 200

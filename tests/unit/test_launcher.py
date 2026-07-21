@@ -39,7 +39,7 @@ def test_readiness_requires_the_paper_tools_identity(
         launcher.urllib.request,
         "urlopen",
         lambda *_args, **_kwargs: _JsonResponse(
-            b'{"app":"paper_tools","status":"ok","version":"0.1.0"}'
+            b'{"app":"paper_tools","status":"ok","version":"0.2.0"}'
         ),
     )
     assert launcher.is_paper_tools_ready("http://127.0.0.1:8000/")
@@ -102,7 +102,9 @@ def test_one_click_and_static_site_assets_are_present() -> None:
     assert "Python 3.11" in command
     assert '"launch"' in bootstrap
     assert 'VENV_DIR = PROJECT_ROOT / ".paper-tools-venv"' in bootstrap
-    assert "START_PAPER_TOOLS.cmd" in landing
+    assert "paper-tools-setup-x64.exe" in landing
+    assert "releases/latest/download" in landing
+    assert "Python、pip、仮想環境、Typstはすべて同梱" in landing
     assert "GitHub Pages" in landing
     assert 'src="/' not in landing
     assert 'href="/' not in landing

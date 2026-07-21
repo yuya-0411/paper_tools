@@ -1,35 +1,37 @@
 # paper_tools
 
-`paper_tools` は，研究メモと実験情報から論文構成，本文案，Typst原稿，助言を作成し，ローカルのTypst CLIでPDFを生成する軽量な論文作成支援Webアプリケーションである．FastAPI，Jinja2，HTMX，SQLiteを用い，外部APIがなくても主要機能を利用できる．
+`paper_tools` は，研究メモと実験情報から論文構成，本文案，Typst原稿，助言，PDFを作成するローカルファーストの論文作成支援アプリケーションである．Windows配布版にはPythonランタイム，依存ライブラリ，Typstを同梱し，利用者による環境構築を不要にする．
 
 > 本ツールは執筆を支援するものであり，研究結果や参考文献の正しさを保証しない．生成された原稿，数値，引用，著者情報は，投稿前に必ず利用者が確認すること．
 
-## 最短の起動方法
+## 利用者向け：Python不要のWindows版
 
-### Windows：ダブルクリック
+1. [最新リリース](https://github.com/yuya-0411/paper_tools/releases/latest) から `paper-tools-setup-x64.exe` を取得する．
+2. インストーラーを実行し，スタートメニューから `paper_tools` を起動する．
+3. ブラウザで論文作成画面が自動的に開く．
+4. 終了するときは，Windowsの通知領域にあるpaper_toolsアイコンから「終了」を選ぶ．
 
-1. このリポジトリをZIPで保存して展開するか，Gitで取得する．
-2. ルートにある `START_PAPER_TOOLS.cmd` をダブルクリックする．
-3. 初回だけ専用の `.paper-tools-venv` と必要ライブラリが自動で準備される．
-4. 準備完了後，`http://127.0.0.1:8000` が既定ブラウザで自動的に開く．
+Python，pip，仮想環境，Typstの個別インストールは不要である．原稿，SQLite，PDFは利用者ごとのローカルデータディレクトリに保存され，インストール先や一時展開先には置かれない．初期の未署名版ではWindows SmartScreenの警告が表示される場合があるため，GitHub Releasesの配布元と `SHA256SUMS.txt` を確認すること．
 
-起動中のコンソール画面を閉じるとサーバーも停止する．`START_HERE.html` は操作を迷わないための案内ページであり，ブラウザの安全制約上，HTML単体からPythonを実行することはない．
+配布物には，Python本体，収録されたPythonパッケージ，Typst，ブラウザ内ライブラリのライセンス文書も同梱する．
 
-### コマンドで起動
+GitHubの「Source code」ZIPは開発用ソースであり，一般利用者向けアプリではない．インストール不要の持ち運び版が必要な場合は，同じリリースの `paper-tools-windows-x64.zip` を展開し，`paper_tools.exe` を実行する．
+
+## 開発者向け：ソースから起動
 
 ```console
 python -m venv .venv
 # Windows PowerShell: .\.venv\Scripts\Activate.ps1
 # Linux/macOS: source .venv/bin/activate
-python -m pip install -e ".[dev]"
+python -m pip install -e ".[dev,desktop]"
 paper-tools doctor
 paper-tools init-db
 paper-tools launch
 ```
 
-`paper-tools launch` は起動済みの同一アプリを再利用し，準備完了後にブラウザを開く．ブラウザを開かない場合は `paper-tools launch --no-browser`，従来どおりURL表示だけで起動する場合は `paper-tools serve` を使用する．外部へ公開せず，既定ではloopbackだけで待ち受ける．
+`paper-tools launch` は開発時の起動コマンドである．起動済みの同一アプリを再利用し，準備完了後にブラウザを開く．`START_PAPER_TOOLS.cmd` もソース取得者向けの互換起動手段として残すが，一般利用者には自己完結Windows版を推奨する．
 
-静的な [スタートページ](site/index.html) は，ローカルで直接開けるほか，将来GitHub Pagesの案内ページとして分離して公開できる．詳しい境界は [docs/launching-and-pages.md](docs/launching-and-pages.md) を参照する．
+静的な [配布ページ](site/index.html) はGitHub Pages向けであり，GitHub Releasesのインストーラーへ案内する．Pages上では論文処理や研究データ保存を行わない．詳しい構成は [docs/launching-and-pages.md](docs/launching-and-pages.md) を参照する．
 
 ## 1．プロジェクト概要
 
@@ -73,27 +75,19 @@ flowchart LR
 
 Typstは論文本文とスタイルを分離しやすく，読みやすい原稿記法と高速なコンパイルを提供する．`main.typ`，`sections/`，`references.yml`，`figures/`，`data/` という単純な構成を保ちやすく，ブラウザフォームから生成した内容も人が直接編集できる．本プロジェクトはLaTeXを主要原稿形式にせず，Typstを正式形式とする．
 
-PDF生成だけはローカルのTypst CLIを必要とする．TypstがなくてもWeb画面，編集，テンプレート選択，Typstソース生成，助言，ZIP出力は利用できる．
+Windows配布版は公式Typst CLIを同梱するため，追加導入なしでPDFを生成できる．ソースから起動する開発環境では，PDF生成時にローカルのTypst CLIを使用する．
 
 ## 5．必要環境
 
-- Python 3.11以上
-- SQLite 3．Python標準ライブラリに同梱されたものを利用可能
-- PDF生成時のみTypst CLI
-- 対応ブラウザ．現在のFirefox，Chromium系，Safariを想定
+- Windows 10または11のx64環境
+- 対応ブラウザ．現在のFirefox，Chromium系を想定
 - 任意機能としてOllama，またはOpenAI互換API
 
-Node.js，Docker，React，Vue，Electronは不要である．基本機能はインターネット接続なしで動作する．
+Python，Typst，Node.js，Docker，React，Vue，Electronは利用者側に不要である．標準機能はインターネット接続なしで動作する．開発者がソースから実行する場合だけPython 3.11以上を必要とする．
 
 ## 6．インストール
 
-通常利用：
-
-```bash
-python -m pip install .
-```
-
-開発環境：
+通常利用はGitHub ReleasesのWindowsインストーラーを使用する．ソースからの開発環境は次のとおりである．
 
 ```bash
 python -m pip install -e ".[dev]"
@@ -114,7 +108,7 @@ typst --version
 paper-tools doctor
 ```
 
-`paper-tools doctor` はPython，SQLite，データディレクトリ，書込み権限，Typst CLIと版，テンプレート，データベース，任意プロバイダーを診断する．Typstが未検出でもアプリ全体を異常終了させず，PDF機能だけを利用不可として案内する．Typstの導入方法は公式配布元の利用環境向け手順を参照する．
+`paper-tools doctor` はPython，SQLite，データディレクトリ，書込み権限，Typst CLIと版，テンプレート，データベース，任意プロバイダーを診断する．Windows配布版では同梱Typstが自動選択される．上記コマンドはソースから開発するときの確認用である．
 
 ## 8．起動方法
 
@@ -277,7 +271,8 @@ mypy src
 
 ```text
 paper_tools/
-├─ START_PAPER_TOOLS.cmd    Windowsのダブルクリック起動
+├─ START_PAPER_TOOLS.cmd    ソース開発者向け互換起動
+├─ packaging/               自己完結exeとインストーラー定義
 ├─ scripts/                 初回環境の安全な準備
 ├─ site/                    GitHub Pages向け静的案内
 ├─ docs/                    設計文書とADR
@@ -314,7 +309,7 @@ paper_tools/
 
 - 論文内容の学術的正しさ，投稿規定への適合，研究倫理上の妥当性は利用者が確認する必要がある．
 - ルールベース生成は入力の整理を目的とし，高度な翻訳，校正，意味的な書換えにはLLM設定が必要である．
-- PDF生成にはローカルのTypst CLIと，原稿が使用するフォントが必要である．
+- Windows配布版はTypst CLIを内蔵するが，原稿が使用するフォントはWindows環境のものを利用する．
 - 同梱テンプレートは独自の汎用様式であり，学会公式テンプレートではない．
 - 初期版のジョブ管理は単一process向けであり，複数server間の分散実行を扱わない．
 - 原稿全体の翻訳は意味的な再構成を行わず，翻訳前のセクションIDと順序を保持する．対象言語の標準構成へ変更する場合は，翻訳後に「構成だけ再生成」を使用する．

@@ -13,6 +13,9 @@ coverage.xml
 # Environments and secrets
 .venv/
 .paper-tools-venv/
+.desktop-venv/
+.uv-build-cache/
+.uv-build-python/
 venv/
 .env
 .env.*
@@ -21,6 +24,7 @@ venv/
 # Packaging
 build/
 dist/
+vendor/typst/
 
 # Runtime state
 .paper-tools/

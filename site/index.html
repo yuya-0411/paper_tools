@@ -3,9 +3,9 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="paper_toolsのローカル起動案内。研究情報からTypst論文原稿を作成します。">
+    <meta name="description" content="Python不要のpaper_tools Windows版。研究情報からTypst論文原稿とPDFをローカルで作成します。">
     <meta name="color-scheme" content="light">
-    <title>paper_tools — ローカル論文作成支援</title>
+    <title>paper_tools — Python不要の論文作成支援</title>
     <style>
       :root {
         --canvas: #f3f6f7;
@@ -189,22 +189,23 @@
         <div>
           <p class="eyebrow">WRITING, WITH EVIDENCE</p>
           <h1 id="hero-title">研究メモから、<br>検証できる論文原稿へ。</h1>
-          <p class="lead">入力した事実だけを使い、不足情報を明示しながら、構成、本文、Typst、PDFまでを一つのローカル画面で整えます。</p>
+          <p class="lead">入力した事実だけを使い、不足情報を明示しながら、構成、本文、Typst、PDFまでを一つのローカル画面で整えます。PythonやTypstのインストールは不要です。</p>
           <div class="actions">
-            <a class="button button-primary" href="http://127.0.0.1:8000/">起動済みのアプリを開く</a>
-            <a class="button" href="#start">起動方法を見る</a>
+            <a class="button button-primary" href="https://github.com/yuya-0411/paper_tools/releases/latest/download/paper-tools-setup-x64.exe">Windows版をダウンロード</a>
+            <a class="button" href="https://github.com/yuya-0411/paper_tools/releases/latest">リリース情報</a>
+            <a class="button" href="http://127.0.0.1:8000/">起動済みのアプリを開く</a>
           </div>
         </div>
 
         <aside class="launch-card" id="start" aria-labelledby="start-title">
           <p class="eyebrow">WINDOWS QUICK START</p>
-          <h2 id="start-title">ダブルクリックで起動</h2>
+          <h2 id="start-title">インストールして、すぐ起動</h2>
           <ol class="steps">
-            <li><span>このフォルダーにある <code>START_PAPER_TOOLS.cmd</code> をダブルクリックします。</span></li>
-            <li><span>初回だけ専用環境と必要なライブラリを自動で準備します。</span></li>
-            <li><span>準備が完了すると、ブラウザで論文作成画面が自動的に開きます。</span></li>
+            <li><span><code>paper-tools-setup-x64.exe</code> をダウンロードして実行します。</span></li>
+            <li><span>スタートメニューから <strong>paper_tools</strong> を起動します。</span></li>
+            <li><span>ローカル画面がブラウザで開きます。終了は通知領域のpaper_toolsアイコンから行えます。</span></li>
           </ol>
-          <p class="first-run">起動中の黒い画面はサーバー本体です。閉じると安全にローカルアプリを停止できます。</p>
+          <p class="first-run">Python、pip、仮想環境、Typstはすべて同梱されます。初期の未署名版ではWindowsの警告が表示される場合があります。</p>
         </aside>
       </section>
 
@@ -217,7 +218,7 @@
         <div class="feature-grid">
           <article class="feature"><span>01</span><h3>日本語・英語</h3><p>8種類の論文構成と、言語ごとの学術文体に対応します。</p></article>
           <article class="feature"><span>02</span><h3>事実を捏造しない</h3><p>不足する数値、引用、図表をプレースホルダーと助言で示します。</p></article>
-          <article class="feature"><span>03</span><h3>Typst・PDF</h3><p>編集可能な原稿を生成し、Typst導入時はPDFまで確認できます。</p></article>
+          <article class="feature"><span>03</span><h3>Typst・PDF</h3><p>同梱Typstで編集可能な原稿とPDFをオフライン生成できます。</p></article>
           <article class="feature"><span>04</span><h3>ローカル保存</h3><p>プロジェクト、履歴、資料は端末上のSQLiteとフォルダーへ保存します。</p></article>
         </div>
       </section>
@@ -226,21 +227,21 @@
         <div class="section-heading">
           <p class="eyebrow">GITHUB PAGES READY</p>
           <h2 id="pages-title">公開ページと論文本体を分けています。</h2>
-          <p>このページは静的HTMLなので、将来そのまま案内ページとして公開できます。</p>
+          <p>この静的ページは配布入口だけを担当し、研究データはPCの外へ出しません。</p>
         </div>
         <div class="boundary">
           <article>
             <h3>GitHub Pages側</h3>
-            <p>製品紹介、起動手順、リリース版のダウンロード案内を担当します。</p>
-            <ul><li>静的HTMLのみ</li><li>研究データを扱わない</li><li>APIキーを保存しない</li></ul>
+            <p>製品紹介、起動手順、Windowsインストーラーの配布を担当します。</p>
+            <ul><li>静的HTMLのみ</li><li>GitHub Releasesへ接続</li><li>研究データを扱わない</li></ul>
           </article>
           <article>
             <h3>ローカルアプリ側</h3>
-            <p>論文編集、SQLite、Typst、Ollama、ファイル保存を端末内で担当します。</p>
-            <ul><li>FastAPIの実画面</li><li>原稿と履歴を保存</li><li>PDF・ZIPを生成</li></ul>
+            <p>論文編集、SQLite、同梱Typst、Ollama、ファイル保存を端末内で担当します。</p>
+            <ul><li>Pythonランタイムを内蔵</li><li>原稿と履歴を保存</li><li>PDF・ZIPを生成</li></ul>
           </article>
         </div>
-        <p class="plain-note">ブラウザの安全機能上、通常のHTMLだけでPythonを起動することはできません。そのため、Windowsでは起動用CMD、GitHub Pagesでは安全な案内ページという役割分担にしています。</p>
+        <p class="plain-note">GitHub Pages自体はサーバー処理を実行しません。インストーラーから起動する自己完結アプリが <code>127.0.0.1</code> だけで待ち受け、データをローカルに保持します。</p>
       </section>
     </main>
 

@@ -15,6 +15,8 @@ from urllib.parse import urlsplit
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from paper_tools.bundled import default_typst_executable
+
 DEFAULT_UPLOAD_EXTENSIONS = frozenset(
     {".png", ".jpg", ".jpeg", ".svg", ".pdf", ".csv", ".json", ".txt", ".yaml", ".yml"}
 )
@@ -74,7 +76,7 @@ class AppSettings(BaseSettings):
     backup_count: int = Field(default=10, ge=0, le=1000)
     autosave_delay_seconds: float = Field(default=1.5, ge=0.1, le=300)
 
-    typst_executable: str = "typst"
+    typst_executable: str = Field(default_factory=default_typst_executable)
     compile_timeout_seconds: float = Field(default=60.0, gt=0, le=3600)
 
     generation_provider: Literal["rule-based", "ollama", "openai-compatible", "mock"] = "rule-based"
