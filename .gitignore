@@ -1,47 +1,23 @@
-# Python
-__pycache__/
-*.py[cod]
-*.egg-info/
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-.coverage
-.coverage.*
-htmlcov/
-coverage.xml
-
-# Environments and secrets
-.venv/
-.paper-tools-venv/
-.desktop-venv/
-.uv-build-cache/
-.uv-build-python/
-venv/
-.env
-.env.*
-!.env.example
-
-# Packaging
-build/
-dist/
-vendor/typst/
-
-# Runtime state
-.paper-tools/
-paper_tools.db
-*.sqlite
-*.sqlite3
-/projects/
-
-# Editors and operating systems
+# Operating systems and editors
+.DS_Store
+Thumbs.db
 .idea/
 .vscode/
 *.swp
 *~
-.DS_Store
-Thumbs.db
 
-# Example and local generated output
-examples/*/output/
-examples/**/*.pdf
-examples/**/*.zip
+# Local reports and temporary files
+coverage/
+playwright-report/
+test-results/
+_site/
+*.log
+*.tmp
+
+# User-created exports and backups
+/backups/
+/exports/
+
+# Local configuration and secrets
+.env
+.env.*

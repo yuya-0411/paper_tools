@@ -1,0 +1,31 @@
+name: Static quality checks
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Browser logic
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Check JavaScript syntax
+        shell: bash
+        run: |
+          for file in scripts/*.js tests/*.js tests/*.cjs; do
+            node --check "$file"
+          done
+
+      - name: Run dependency-free tests
+        run: node tests/node-tests.cjs
+
+      - name: Smoke-test the double-click UI in Chrome
+        run: node --experimental-websocket tests/browser-smoke.cjs --browser google-chrome

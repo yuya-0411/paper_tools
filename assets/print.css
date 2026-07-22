@@ -1,0 +1,36 @@
+.topbar,
+.sidebar,
+.toast-region,
+.app-dialog,
+.editor-sidebar,
+.editor-inspector,
+.editor-toolbar,
+.section-instruction {
+  display: none !important;
+}
+
+body,
+#main-content,
+.workspace,
+.editor-shell,
+.editor-main,
+.editor-document {
+  display: block !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  color: #000 !important;
+  background: #fff !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+@page {
+  size: A4;
+  margin: 22mm 20mm;
+}
+
+.manuscript-textarea {
+  min-height: 0 !important;
+  overflow: visible !important;
+  border: 0 !important;
+}

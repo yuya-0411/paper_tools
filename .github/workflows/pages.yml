@@ -1,4 +1,4 @@
-name: GitHub Pages
+name: Deploy static app to Pages
 
 on:
   workflow_dispatch:
@@ -9,21 +9,38 @@ permissions:
   id-token: write
 
 concurrency:
-  group: github-pages
+  group: pages
   cancel-in-progress: true
 
 jobs:
   deploy:
+    name: Deploy Pages
+    runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v4
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v6
+
+      - name: Verify browser logic
+        run: node tests/node-tests.cjs
+
+      - name: Prepare public files
+        shell: bash
+        run: |
+          mkdir _site
+          cp index.html _site/
+          cp -R assets scripts _site/
+
+      - name: Upload static files
+        uses: actions/upload-pages-artifact@v5
         with:
-          path: site
-      - name: Deploy GitHub Pages
+          path: _site
+
+      - name: Deploy to Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

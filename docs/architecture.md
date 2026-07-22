@@ -1,116 +1,63 @@
-# Architecture
+# アーキテクチャ
 
-## 1．System構成
+## 目的
 
-```mermaid
-flowchart TB
-    B["Browser"] -->|"HTML／HTMX"| W["FastAPI web routes"]
-    C["paper-tools CLI"] --> S["Application services"]
-    W --> S
-    S --> P["Generation provider interface"]
-    P --> R["Rule-based"]
-    P --> O["Ollama"]
-    P --> X["OpenAI-compatible"]
-    S --> A["Advisory registry"]
-    S --> T["Template loader／Typst renderer"]
-    S --> J["In-process job manager"]
-    J --> TC["Typst CLI"]
-    S --> RP["Repositories"]
-    RP --> DB[("SQLite")]
-    S --> FS["Project storage"]
-```
+`paper_tools` は，インストールやローカルサーバーなしで論文作成支援を利用できる静的ブラウザーアプリである．配布物はHTML，CSS，JavaScript，画像などの静的ファイルだけで構成する．同じファイルをローカルの `file://` とGitHub PagesのHTTPSから利用できる設計とする．
 
-BrowserとCLIは同じapplication serviceを利用する．routeはrequestのdecode，認可相当のlocal boundary／CSRF検査，responseのformatだけを担当し，generation，filesystem，provider，Typstを直接実装しない．
+## 設計原則
 
-## 2．Component責務
+- Python，Node.js，データベースサーバー，ビルド処理を実行時に要求しない．
+- 主要機能をブラウザー内で完結させる．
+- 原稿データを既定で外部送信しない．
+- 自動保存だけに依存せず，JSONとZIPによる持ち出し可能なバックアップを用意する．
+- `file://` とGitHub Pagesの両方で動くよう，資産参照には相対パスを使用する．
 
-| Component | 責務 |
-|---|---|
-| `config` | Pydantic Settings，environment，安全なdefault |
-| `database`／`models` | SQLAlchemy engine，schema，transaction，timestamp |
-| `repositories` | Project，section，version，advice，referenceの永続化 |
-| `schemas` | Web／service境界のPydantic modelとenum |
-| `services.projects` | project lifecycle，wizard，autosave，snapshot |
-| `services.planning` | input normalization，PaperSpec，outline |
-| `services.generation` | provider orchestrationとfallback |
-| `services.advisory` | rule registry実行と解決状態の統合 |
-| `services.typst_renderer` | document modelからtemplate render |
-| `services.typst_compiler` | Typst検出，command，timeout，result |
-| `services.assets` | upload検証，safe name，metadata |
-| `services.references` | YAML／BibTeX，key整合性 |
-| `services.export` | project ZIPとdownload |
-| `services.jobs` | 小規模な非同期job状態と二重実行防止 |
-| `providers` | rule-based，Ollama，OpenAI互換，mock |
-| `web` | FastAPI route，Jinja2 view，HTMX partial，static asset |
-
-## 3．Data flow
-
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant W as Web
-    participant G as Generation service
-    participant P as Provider
-    participant D as Advisory
-    participant T as Typst
-    participant S as Storage
-    U->>W: Input and instructions
-    W->>G: Validated request
-    G->>S: Snapshot before generation
-    G->>G: Normalize and build PaperSpec
-    G->>D: Pre-generation diagnosis
-    G->>P: Structured generation request
-    P-->>G: Sections without invented facts
-    G->>T: Build and render document
-    T-->>G: Typst source
-    G->>D: Post-generation diagnosis
-    G->>S: Atomic files and DB transaction
-    G-->>W: Result and job state
-    W-->>U: Sections，advice，source，PDF status
-```
-
-Provider失敗時は，requestがfallback許可ならrule-based providerを実行し，run recordへfallbackとerror summaryを残す．部分的なDB更新や壊れた`main.typ`を公開しない．
-
-## 4．Database
-
-SQLiteはapplication metadataのsource of truthである．主要modelはProject，Author，PaperSpec，Section，SectionVersion，Template，ProjectAsset，Reference，GenerationRun，GenerationInstruction，PaperAdvice，CompileResult，ApplicationSettingである．主要tableは作成・更新日時を持ち，複数recordを変更するoperationはtransactionで囲む．
-
-Binary assetと生成sourceはproject directoryへ保存し，DBにはsafe relative path，hash，metadataを保存する．この分離により大きなblobでDBを肥大化させず，export可能なproject layoutを維持する．初期schema用Alembic revisionを同梱するが，0.1では起動時の不足table作成にSQLAlchemy metadataを使い，revision以後の自動upgradeは未実装である．
-
-## 5．Generation処理
-
-Pipelineはnormalization，PaperSpec，preflight advice，outline，section generation，Typst document，template rendering，optional compile，postflight adviceに分割する．各段階はtyped modelを受け渡し，routeやproviderにfilesystem accessを与えない．詳細は [generation.md](generation.md) を参照する．
-
-## 6．Typst処理
-
-Rendererはtemplate resourceとdocument modelを使い，styleとbodyを分離し，section fileと`main.typ`を生成する．Project内のTypst pathはOSにかかわらず `/` を使う．Compile serviceは許可されたproject rootを `--root` 相当の境界として，`shell=False`，argument array，timeoutでTypstを実行する．成功時は一時PDFを原子的に公開し，失敗時は既存PDFを維持する．
-
-## 7．File保存
+## コンポーネント
 
 ```mermaid
 flowchart LR
-    I["Upload stream"] --> L["Size limit"]
-    L --> E["Extension and signature validation"]
-    E --> N["Random internal name"]
-    N --> R["Resolved root-bound path"]
-    R --> F["Atomic file write"]
-    F --> M["Metadata transaction"]
+    U["利用者"] --> UI["HTML／CSS UI"]
+    UI --> A["ブラウザー内アプリロジック"]
+    A --> S["ブラウザー内ストレージ"]
+    A --> R["ルールベース生成・助言"]
+    A --> E["JSON／ZIP／Typst書出し"]
+    UI --> P["ブラウザー印刷・PDF保存"]
 ```
 
-利用者のoriginal nameは表示metadataとしてのみ保持する．保存・download・ZIP entryはsafe relative pathから組み立て，absolute path，`..`，drive prefix，symlink escapeを拒否する．
+### 表示層
 
-## 8．Jobとfailure recovery
+画面遷移，入力フォーム，保存状態，助言，プレビューをHTMLとCSSで表示する．ユーザー入力をHTMLとして直接解釈せず，安全なテキストとして描画する．
 
-初期版は単一process内のjob registryと`asyncio`を使う．状態は `idle`，`planning`，`generating`，`rendering`，`compiling`，`completed`，`failed`，`cancelled` である．Project IDごとのlockで二重生成を防ぎ，HTMX pollingが状態を取得する．DBにも最終状態，progress，errorを保存し，再起動時に残ったrunning stateをfailedへ回復する．
+### アプリケーション層
 
-## 9．Extension point
+プロジェクト作成，入力の正規化，構成生成，セクション編集，履歴，ルールベース助言，エクスポートをJavaScriptで処理する．ネットワーク応答を前提としない．重い処理を追加する場合は，UIを停止させないようWeb Workerへの分離を検討する．
 
-- `TextGenerationProvider` 実装の追加
-- Advisory ruleとtemplate別rule setの登録
-- manifest付きtemplate packageの追加
-- Repository implementationと将来のDB変更
-- Compile backendやpreview rendererの追加
-- process外job queueへのJobManager差替え
-- Export formatの追加
+### 永続化層
 
-主要判断は [adr](adr) に記録する．
+プロジェクトと設定はブラウザー内ストレージへ保存する．入力の連続中は保存処理をまとめ，保存中，保存済み，保存失敗を画面へ表示する．ブラウザー内ストレージは同期サービスではないため，環境間の移動にはJSONまたは添付ファイルを含むZIPを使用する．どちらもアプリの読込み画面から復元できる．
+
+### エクスポート
+
+- JSONは構造化された本文・設定のバックアップと復元に使用する．添付ファイル本体は含めない．
+- ZIPはプロジェクト一式の持ち出し用バックアップに使用する．
+- JSONとZIPは100 MB・2,048エントリー以内という共通の読込み可能範囲を守り，範囲外の不完全なバックアップは作成しない．
+- Typstソースは外部のTypst環境で編集・コンパイルできる形式として書き出す．
+- PDFは表示中の原稿をブラウザーの印刷機能で保存する．
+
+## オリジンと保存領域
+
+`file://` で開いたアプリとGitHub Pages上のアプリは，ブラウザーから別の保存領域として扱われる．PagesのURL，ブラウザー，プロファイル，端末が変わった場合も自動的には共有されない．アプリはこの境界を越えてデータを同期しない．
+
+ブラウザーや設定によっては `file://` の保存動作が制限されることがある．継続利用ではGitHub Pagesを使い，重要な変更後にバックアップを作成する運用を推奨する．
+
+## ネットワークと秘密情報
+
+静的サイトには秘密情報を保持できるサーバー領域がない．JavaScriptへ埋め込んだAPIキーは閲覧者から確認できるため，APIキーを必要とするライブLLM連携は行わない．主要機能はルールベースで動作し，原稿を無断で外部へ送信しない．
+
+## PDFとTypstの境界
+
+ブラウザー版はネイティブコマンドを起動できないため，Typst CLIを実行しない．`.typ` の生成と書出しまでを担当し，Typstとしてのコンパイルは利用者が選んだ外部環境の責務とする．アプリ内PDFはブラウザーの印刷・PDF保存を使用する．
+
+## 配布
+
+ローカル利用ではリポジトリを展開して `index.html` を開く．GitHub Pagesでは `.github/workflows/pages.yml` が公開対象の `index.html`，`assets/`，`scripts/` だけを一時ディレクトリへ集めて配信する．アプリ自体のビルド成果物やサーバープロセスは存在しない．

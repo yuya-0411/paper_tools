@@ -1,7 +1,0 @@
-typst-docs:
-  type: Web
-  title: Typst Documentation
-  author:
-    - name: Typst GmbH
-  url: https://typst.app/docs/
-  note: Official documentation for the Typst authoring system

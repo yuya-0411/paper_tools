@@ -1,9 +1,0 @@
-trial,initial_speed_m_per_s,stop_error_mm,within_demo_tolerance,data_kind
-1,0.25,5.2,true,synthetic-demo
-2,0.25,-7.1,true,synthetic-demo
-3,0.25,4.8,true,synthetic-demo
-4,0.25,9.1,true,synthetic-demo
-5,0.25,-6.4,true,synthetic-demo
-6,0.25,3.9,true,synthetic-demo
-7,0.25,-8.3,true,synthetic-demo
-8,0.25,4.0,true,synthetic-demo
