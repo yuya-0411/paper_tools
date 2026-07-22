@@ -9,6 +9,10 @@
   namespace.templateMap = api.templateMap;
   namespace.getTemplate = api.getTemplate;
   namespace.listTemplates = api.listTemplates;
+  namespace.registerCustomTemplate = api.registerCustomTemplate;
+  namespace.unregisterCustomTemplate = api.unregisterCustomTemplate;
+  namespace.listCustomTemplates = api.listCustomTemplates;
+  namespace.BUILT_IN_TEMPLATE_IDS = api.BUILT_IN_TEMPLATE_IDS;
 
   if (typeof module === "object" && module.exports) {
     module.exports = api;
@@ -206,6 +210,13 @@
   ];
 
   var templateMap = {};
+  var builtInTemplateIds = templates.map(function (template) {
+    return template.id;
+  });
+  var builtInTemplateIdSet = Object.create(null);
+  builtInTemplateIds.forEach(function (id) {
+    builtInTemplateIdSet[id] = true;
+  });
   templates.forEach(function (template) {
     template.sectionIds = template.sections.map(function (item) {
       return item.id;
@@ -221,11 +232,63 @@
     return templates.slice();
   }
 
+  function registerCustomTemplate(template) {
+    if (!template || typeof template !== "object") {
+      throw new TypeError("カスタムテンプレート定義を読み取れませんでした．");
+    }
+    var id = String(template.id || "").trim();
+    if (!/^custom-[a-z0-9][a-z0-9_-]{0,56}$/.test(id)) {
+      throw new Error("カスタムテンプレートIDが不正です．");
+    }
+    if (builtInTemplateIdSet[id]) {
+      throw new Error("組込みテンプレートは上書きできません．");
+    }
+    if (!Array.isArray(template.sections) || !template.sections.length) {
+      throw new Error("テンプレートにセクションがありません．");
+    }
+    var registered = Object.assign({}, template, {
+      id: id,
+      custom: true,
+      isCustom: true,
+      sectionIds: template.sections.map(function (item) {
+        return item.id;
+      }),
+    });
+    var existingIndex = templates.findIndex(function (item) {
+      return item.id === id;
+    });
+    if (existingIndex >= 0) templates.splice(existingIndex, 1, registered);
+    else templates.push(registered);
+    templateMap[id] = registered;
+    return registered;
+  }
+
+  function unregisterCustomTemplate(id) {
+    if (!id || builtInTemplateIdSet[id]) return false;
+    var index = templates.findIndex(function (item) {
+      return item.id === id && item.isCustom;
+    });
+    if (index < 0) return false;
+    templates.splice(index, 1);
+    delete templateMap[id];
+    return true;
+  }
+
+  function listCustomTemplates() {
+    return templates.filter(function (template) {
+      return template.isCustom;
+    });
+  }
+
   return {
     templates: templates,
     TEMPLATES: templates,
     templateMap: templateMap,
     getTemplate: getTemplate,
     listTemplates: listTemplates,
+    registerCustomTemplate: registerCustomTemplate,
+    unregisterCustomTemplate: unregisterCustomTemplate,
+    listCustomTemplates: listCustomTemplates,
+    BUILT_IN_TEMPLATE_IDS: builtInTemplateIds.slice(),
   };
 });

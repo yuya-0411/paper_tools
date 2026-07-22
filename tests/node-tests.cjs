@@ -1,12 +1,15 @@
 "use strict";
 
 require("../scripts/templates.js");
+require("../scripts/custom-templates.js");
 require("../scripts/core.js");
 require("../scripts/references.js");
 require("../scripts/storage.js");
 require("../scripts/generator.js");
+require("../scripts/evidence-audit.js");
 require("../scripts/zip.js");
 require("../scripts/export.js");
+require("../scripts/ai-prompts.js");
 
 const suite = require("./test-suite.js");
 

@@ -97,6 +97,7 @@
       this.dialogBody = document.getElementById("dialog-body");
       this.dialogActions = document.getElementById("dialog-actions");
       this.importInput = document.getElementById("project-import-input");
+      this.templateImportInput = document.getElementById("template-import-input");
       this.repo = new PT.Repository();
       this.projects = [];
       this.settings = Object.assign({}, PT.DEFAULT_SETTINGS);
@@ -119,13 +120,15 @@
       this.wizardRevision = 0;
       this.wizardDirty = false;
       this.wizardFinishing = false;
+      this.templateMutationInFlight = false;
     }
 
     async init() {
       this.bindShell();
       await this.repo.init();
-      const recoveredCount = await this.repo.recoverEmergencyProjects();
       this.settings = await this.repo.getSettings();
+      this.registerStoredCustomTemplates();
+      const recoveredCount = await this.repo.recoverEmergencyProjects();
       await this.refreshProjects();
       this.storageDot.classList.add(this.repo.mode === "indexeddb" ? "is-ready" : "is-warning");
       this.storageStatus.textContent =
@@ -136,6 +139,21 @@
             : "一時利用モード";
       if (recoveredCount) this.toast(`${recoveredCount}件の終了直前の編集を回復しました．`);
       await this.renderRoute();
+    }
+
+    registerStoredCustomTemplates() {
+      const stored = Array.isArray(this.settings.customTemplates) ? this.settings.customTemplates.slice(0, 20) : [];
+      const accepted = [];
+      stored.forEach((item) => {
+        try {
+          const normalized = PT.normalizeTemplateDefinition(item);
+          if (!normalized) return;
+          accepted.push(PT.registerCustomTemplate(normalized));
+        } catch (_error) {
+          // 壊れた定義だけを無視し，組込みテンプレートと他の登録内容は利用可能にする．
+        }
+      });
+      this.settings.customTemplates = accepted.map((item) => PT.normalizeTemplateDefinition(item));
     }
 
     bindShell() {
@@ -159,6 +177,7 @@
       });
       document.getElementById("open-guide").addEventListener("click", () => this.showGuide());
       this.importInput.addEventListener("change", (event) => this.importProject(event));
+      this.templateImportInput.addEventListener("change", (event) => this.importCustomTemplate(event));
       document.addEventListener("keydown", (event) => {
         if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
           event.preventDefault();
@@ -190,6 +209,25 @@
       const target = `#${String(route).replace(/^#/, "")}`;
       if (root.location.hash === target) this.renderRoute();
       else root.location.hash = target;
+    }
+
+    async copyText(value, control) {
+      const text = String(value || "");
+      if (!text) throw new Error("コピーする内容がありません．");
+      try {
+        if (root.navigator && root.navigator.clipboard && typeof root.navigator.clipboard.writeText === "function") {
+          await root.navigator.clipboard.writeText(text);
+          return true;
+        }
+      } catch (_error) {
+        // file:// ではClipboard APIが許可されない場合があるため，選択コピーへ切り替える．
+      }
+      if (control && typeof control.select === "function") {
+        control.focus();
+        control.select();
+        if (typeof document.execCommand === "function" && document.execCommand("copy")) return true;
+      }
+      throw new Error("自動コピーできませんでした．表示されたプロンプトを選択してコピーしてください．");
     }
 
     async renderRoute() {
@@ -225,7 +263,8 @@
             if (route.name === "home") await this.renderHome();
             else if (route.name === "projects") await this.renderProjects();
             else if (route.name === "new") await this.renderWizard(route.id, route.step);
-            else if (route.name === "templates") this.renderTemplates();
+            else if (route.name === "templates") await this.renderTemplates();
+            else if (route.name === "assistant") await this.renderAssistant(route.id);
             else if (route.name === "settings") this.renderSettings();
             else if (route.name === "editor") await this.openEditor(route.id);
             else this.navigate("home");
@@ -264,7 +303,7 @@
           {},
           h("h1", { text: "研究内容を，論文のかたちへ．" }),
           h("p", {
-            text: "事実だけを入力すると，構成・草稿・不足情報を整理します．環境構築も外部送信もありません．",
+            text: "事実だけを入力すると，構成・草稿・不足情報を整理します．テンプレート解釈とAI向け指示文の作成まで，環境構築なしで使えます．",
           }),
           h(
             "div",
@@ -276,7 +315,7 @@
         h(
           "div",
           { className: "hero-guide" },
-          h("strong", { text: "使い方は3段階" }),
+          h("strong", { text: "基本の使い方は3段階" }),
           h(
             "ol",
             {},
@@ -324,8 +363,11 @@
         h(
           "div",
           { className: "grid grid--three" },
+          this.infoCard("テンプレートを自動解釈", "Markdown，Typst，LaTeXなどを選ぶだけで，見出し・言語・段組・必要項目を登録します．"),
           this.infoCard("外部APIなしで草稿化", "入力済みの内容だけを使い，不足部分は明示的なTODOとして残します．"),
-          this.infoCard("不足を具体的に診断", "実験条件，定量結果，比較対象，図表，参考文献などを確認します．"),
+          this.infoCard("図・データの不足を診断", "研究内容と原稿を照合し，追加すべき図，表，評価データを具体的に示します．"),
+          this.infoCard("英文変換プロンプト", "日本語原稿を英語へ変換するための，捏造防止条件付きプロンプトを作成します．"),
+          this.infoCard("模擬査読と内容補強", "査読，拡張，校正，文献調査をローカルLLMなどへ依頼する指示文を作成します．"),
           this.infoCard("持ち出せるデータ", "JSON，Typst，BibTeX，ZIPへ書き出せます．PDFはブラウザの印刷機能で保存します．"),
         ),
       );
@@ -381,8 +423,18 @@
       page.appendChild(grid);
     }
 
-    renderTemplates() {
-      const page = this.page("テンプレート", "文書種別に合わせた章構成から始められます．");
+    async renderTemplates() {
+      const page = this.page("テンプレート", "組込み構成を選ぶか，手元のテンプレートファイルをアップロードするだけで登録できます．");
+      const customCount = typeof PT.listCustomTemplates === "function" ? PT.listCustomTemplates().length : 0;
+      page.appendChild(h("section", { className: "panel template-import-panel" },
+        h("div", { className: "section-heading", style: { marginTop: "0" } },
+          h("div", {}, h("h2", { text: "テンプレートを自動登録" }), h("p", { text: "見出し，言語，段組，必要な研究情報を自動解釈します．" })),
+          button("ファイルを選んで登録", "button", () => this.templateImportInput.click()),
+        ),
+        h("p", { text: "対応：JSON，Markdown，TXT，Typst，LaTeX，HTML（最大512 KiB）．選択後に自動登録され，元ファイルやHTMLコードは保存しません．" }),
+        h("div", { className: "notice notice--warning" }, h("p", { text: "PDFとDOCXは，ブラウザーだけで構造を正確に解釈できないため登録対象外です．テキスト形式へ変換してアップロードしてください．" })),
+        h("p", { className: "field-help", text: `現在の登録：組込み ${PT.BUILT_IN_TEMPLATE_IDS.length}件・カスタム ${customCount}件` }),
+      ));
       const filter = h("select", { id: "template-language", className: "select-input" }, h("option", { value: "all", text: "すべての言語" }), h("option", { value: "ja", text: "日本語" }), h("option", { value: "en", text: "English" }));
       const filterBar = h("div", { className: "filter-bar" }, field("言語", filter));
       const grid = h("div", { className: "grid grid--three" });
@@ -395,11 +447,18 @@
             h(
               "article",
               { className: "card template-card" },
-              h("div", { className: "card__meta" }, h("span", { className: "badge badge--accent", text: supportedLanguages.length > 1 ? "日本語 / English" : template.language === "en" ? "English" : "日本語" }), h("span", { text: template.typeLabel || template.type })),
+              h("div", { className: "card__meta" }, h("span", { className: "badge badge--accent", text: supportedLanguages.length > 1 ? "日本語 / English" : template.language === "en" ? "English" : "日本語" }), h("span", { text: template.isCustom ? "自動解釈" : template.typeLabel || template.type })),
               h("h2", { text: template.name, style: { marginTop: "12px", fontSize: "1.08rem" } }),
               h("p", { text: template.description }),
               h("ol", { className: "template-sections" }, template.sections.slice(0, 6).map((section) => h("li", { text: previewLanguage === "en" ? section.titleEn || section.title : section.titleJa || section.title }))),
-              h("div", { className: "card__actions" }, button("この構成で作る", "button", () => this.startWizard(template.id))),
+              template.isCustom && template.interpretation && Array.isArray(template.interpretation.warnings) && template.interpretation.warnings.length
+                ? h("div", { className: "template-interpretation-note" },
+                  h("strong", { text: "自動解釈の確認事項" }),
+                  h("ul", {}, template.interpretation.warnings.slice(0, 20).map((warning) => h("li", { text: warning }))),
+                )
+                : null,
+              template.isCustom ? h("p", { className: "field-help", text: `元ファイル：${template.source.filename || "不明"}／${template.layout === "two-column" ? "2段組" : "1段組"}` }) : null,
+              h("div", { className: "card__actions" }, button("この構成で作る", "button", () => this.startWizard(template.id)), template.isCustom ? button("登録を削除", "button-quiet", () => this.deleteCustomTemplate(template)) : null),
             ),
           );
         });
@@ -407,6 +466,118 @@
       filter.addEventListener("change", draw);
       draw();
       page.append(filterBar, grid);
+    }
+
+    async importCustomTemplate(event) {
+      const input = event.target;
+      const file = input.files && input.files[0];
+      input.value = "";
+      if (!file) return;
+      return this.runTemplateMutation(async () => {
+        try {
+          const result = await PT.analyzeCustomTemplateFile(file);
+          if (!result.ok) {
+            this.toast(result.message || "テンプレートを解釈できませんでした．", true);
+            return;
+          }
+          const enriched = Object.assign({}, result.template, {
+            source: Object.assign({}, result.template.source, { importedAt: PT.nowIso() }),
+            interpretation: {
+              confidence: result.analysis && result.analysis.usedFallbackOutline ? 0.55 : 0.9,
+              warnings: result.warnings || [],
+            },
+          });
+          const normalized = PT.normalizeTemplateDefinition(enriched);
+          if (!normalized) throw new Error("安全なテンプレート定義を作成できませんでした．");
+          const current = Array.isArray(this.settings.customTemplates) ? this.settings.customTemplates.slice() : [];
+          const replacingExisting = current.some((item) => item.id === normalized.id);
+          if (!replacingExisting && current.length >= 20) {
+            throw new Error("カスタムテンプレートは20件まで登録できます．不要な登録を削除してから再度お試しください．");
+          }
+          const nextTemplates = current.filter((item) => item.id !== normalized.id);
+          nextTemplates.push(normalized);
+          const previousSettings = this.settings;
+          const savedSettings = await this.repo.saveSettings(Object.assign({}, previousSettings, { customTemplates: nextTemplates }));
+          let registered;
+          try {
+            registered = PT.registerCustomTemplate(normalized);
+          } catch (registerError) {
+            try {
+              await this.repo.saveSettings(previousSettings);
+            } catch (_rollbackError) {
+              // 永続化の復旧にも失敗した場合は，次回起動時に保存済み定義から再登録される．
+            }
+            throw registerError;
+          }
+          this.settings = savedSettings;
+          const warningText = result.warnings && result.warnings.length ? ` ${result.warnings.join(" ")}` : "";
+          this.toast(`${registered.name}を登録しました（${registered.sections.length}節・${registered.layout === "two-column" ? "2段組" : "1段組"}）．${warningText}`);
+          if (this.route().name === "templates") {
+            try {
+              await this.renderTemplates();
+            } catch (renderError) {
+              this.toast(`登録は完了しましたが，一覧を再表示できませんでした：${renderError.message}`, true);
+            }
+          }
+        } catch (error) {
+          this.toast(`テンプレートを登録できませんでした：${error.message}`, true);
+        }
+      });
+    }
+
+    async deleteCustomTemplate(template) {
+      return this.runTemplateMutation(async () => {
+        await this.refreshProjects();
+        const usedBy = this.projects.filter((project) => project.templateId === template.id);
+        if (usedBy.length) {
+          this.toast(`このテンプレートは${usedBy.length}件のプロジェクトで使用中です．先に対象プロジェクトを整理してください．`, true);
+          return;
+        }
+        const ok = await this.confirm("テンプレート登録を削除", `「${template.name}」をこのブラウザーの登録一覧から削除します．`, "削除する", true);
+        if (!ok) return;
+        const previousSettings = this.settings;
+        const remaining = (Array.isArray(previousSettings.customTemplates) ? previousSettings.customTemplates : []).filter((item) => item.id !== template.id);
+        let savedSettings;
+        try {
+          savedSettings = await this.repo.saveSettings(Object.assign({}, previousSettings, { customTemplates: remaining }));
+        } catch (error) {
+          this.toast(`テンプレート登録を削除できませんでした：${error.message}`, true);
+          return;
+        }
+        if (!PT.unregisterCustomTemplate(template.id)) {
+          try {
+            await this.repo.saveSettings(previousSettings);
+          } catch (_rollbackError) {
+            this.toast("保存状態を復旧できませんでした．ページを再読み込みして登録一覧を確認してください．", true);
+            return;
+          }
+          this.toast("テンプレート登録を削除できませんでした：登録一覧を更新できませんでした．", true);
+          return;
+        }
+        this.settings = savedSettings;
+        this.toast("テンプレート登録を削除しました．");
+        try {
+          await this.renderTemplates();
+        } catch (renderError) {
+          this.toast(`削除は完了しましたが，一覧を再表示できませんでした：${renderError.message}`, true);
+        }
+      });
+    }
+
+    async runTemplateMutation(action) {
+      if (this.templateMutationInFlight) {
+        this.toast("テンプレートを処理中です．完了してからもう一度操作してください．", true);
+        return false;
+      }
+      this.templateMutationInFlight = true;
+      try {
+        return await action();
+      } catch (error) {
+        this.toast(`テンプレート処理を完了できませんでした：${error.message}`, true);
+        return false;
+      } finally {
+        this.templateMutationInFlight = false;
+      }
     }
 
     async startWizard(templateId) {
@@ -859,6 +1030,7 @@
       this.main.replaceChildren(page);
       this.contextActions.replaceChildren(
         button("保存", "button-secondary", () => this.saveCurrentProject(true)),
+        button("AI作業台", "button-secondary", () => this.navigate(`assistant/${encodeURIComponent(project.id)}`)),
         button("Typst一式", "button-secondary", () => this.downloadTypst(project)),
         button("ZIPバックアップ", "button-secondary", () => this.downloadArchive(project)),
         button("印刷・PDF", "button", () => this.printProject(project)),
@@ -917,13 +1089,42 @@
       const advice = (project.manuscript.advice || []).slice().sort((a, b) => Number(a.resolved) - Number(b.resolved));
       const unresolved = advice.filter((item) => !item.resolved).length;
       wrapper.appendChild(h("div", { className: "section-heading", style: { marginTop: "0" } }, h("div", {}, h("h2", { text: "不足情報" }), h("p", { text: `未解決 ${unresolved}件` }))));
-      if (!advice.length) return h("div", {}, wrapper, h("div", { className: "notice", text: "現時点で追加の助言はありません．" }));
-      const list = h("div", { className: "advice-list" });
-      advice.forEach((item) => {
-        const label = item.severity === "required" ? "必須" : item.severity === "recommended" ? "推奨" : "任意";
-        list.appendChild(h("article", { className: `advice-card${item.resolved ? " is-resolved" : ""}`, dataset: { severity: item.severity } }, h("div", { className: "card__meta" }, h("span", { className: item.severity === "required" ? "badge badge--danger" : "badge badge--warning", text: label }), item.resolved ? h("span", { text: "解決済み" }) : null), h("h3", { text: item.title }), h("p", { text: item.reason }), h("p", { text: `追加内容：${item.action}` }), h("div", { className: "card__actions" }, button(item.resolved ? "未解決へ戻す" : "解決済みにする", "button-link", () => { item.resolved = !item.resolved; this.saveCurrentProject(false); this.renderEditor(); }), button("入力を確認", "button-link", () => { this.inspectorTab = "inputs"; this.renderEditor(); }))));
-      });
-      wrapper.appendChild(list);
+      if (!advice.length) {
+        wrapper.appendChild(h("div", { className: "notice", text: "一般的な不足情報はありません．" }));
+      } else {
+        const list = h("div", { className: "advice-list" });
+        advice.forEach((item) => {
+          const label = item.severity === "required" ? "必須" : item.severity === "recommended" ? "推奨" : "任意";
+          list.appendChild(h("article", { className: `advice-card${item.resolved ? " is-resolved" : ""}`, dataset: { severity: item.severity } }, h("div", { className: "card__meta" }, h("span", { className: item.severity === "required" ? "badge badge--danger" : "badge badge--warning", text: label }), item.resolved ? h("span", { text: "解決済み" }) : null), h("h3", { text: item.title }), h("p", { text: item.reason }), h("p", { text: `追加内容：${item.action}` }), h("div", { className: "card__actions" }, button(item.resolved ? "未解決へ戻す" : "解決済みにする", "button-link", () => { item.resolved = !item.resolved; this.saveCurrentProject(false); this.renderEditor(); }), button("入力を確認", "button-link", () => { this.inspectorTab = "inputs"; this.renderEditor(); }))));
+        });
+        wrapper.appendChild(list);
+      }
+
+      if (typeof PT.auditEvidence === "function") {
+        const audit = PT.auditEvidence(project);
+        const actionable = audit.findings.filter((item) => item.status !== "ok");
+        wrapper.appendChild(h("div", { className: "section-heading evidence-heading" }, h("div", {}, h("h2", { text: "不足する図・データ" }), h("p", { text: `不足 ${audit.summary.missing}件・提案 ${audit.summary.recommended}件・確認済み ${audit.summary.ok}件` }))));
+        if (!actionable.length) {
+          wrapper.appendChild(h("div", { className: "notice", text: "現在の入力範囲では，追加すべき図・データは検出されませんでした．" }));
+        } else {
+          const evidenceList = h("div", { className: "advice-list evidence-list" });
+          actionable.forEach((item) => {
+            const isMissing = item.status === "missing";
+            evidenceList.appendChild(h("article", { className: "advice-card evidence-card", dataset: { severity: isMissing ? "required" : "recommended" } },
+              h("div", { className: "card__meta" }, h("span", { className: isMissing ? "badge badge--danger" : "badge badge--warning", text: isMissing ? "不足" : "提案" }), h("span", { text: item.targetSectionTitle || item.targetSection || "プロジェクト全体" })),
+              h("h3", { text: item.title }),
+              h("p", { text: item.reason }),
+              h("p", { text: `追加内容：${item.action}` }),
+              h("p", { className: "field-help", text: `推奨形式：${item.recommendedFormat}` }),
+              h("div", { className: "card__actions" },
+                button("研究情報を確認", "button-link", () => { if (project.manuscript.sections.some((section) => section.id === item.targetSection)) project.ui.activeSectionId = item.targetSection; this.inspectorTab = "inputs"; this.renderEditor(); }),
+                button("図・データを確認", "button-link", () => { if (project.manuscript.sections.some((section) => section.id === item.targetSection)) project.ui.activeSectionId = item.targetSection; this.inspectorTab = "assets"; this.renderEditor(); }),
+              ),
+            ));
+          });
+          wrapper.appendChild(evidenceList);
+        }
+      }
       return wrapper;
     }
 
@@ -960,7 +1161,7 @@
         this.setSaveState("未保存");
         this.queueProjectSave(project);
       };
-      const editorTemplate = PT.templateMap[project.templateId] || PT.TEMPLATES[0];
+      const editorTemplate = PT.normalizeTemplateDefinition(project.templateDefinition) || PT.templateMap[project.templateId] || PT.TEMPLATES[0];
       const editorDocumentTypes = editorTemplate.documentTypes || [editorTemplate.type];
       const documentTypeSelect = h("select", { className: "select-input", on: { change: (event) => updateMetadata("documentType", event.target.value, 80) } }, editorDocumentTypes.map((value) => h("option", { value, text: this.documentTypeLabel(value), selected: project.documentType === value })));
       const englishVariantSelect = h("select", { className: "select-input", on: { change: (event) => { project.englishVariant = event.target.value === "british" ? "british" : "american"; this.setSaveState("未保存"); this.queueProjectSave(project); } } }, h("option", { value: "american", text: "American English", selected: project.englishVariant !== "british" }), h("option", { value: "british", text: "British English", selected: project.englishVariant === "british" }));
@@ -1655,6 +1856,176 @@
       });
     }
 
+    async renderAssistant(identifier) {
+      await this.refreshProjects();
+      const project = this.projects.find((item) => item.id === identifier)
+        || (this.currentProject && this.projects.find((item) => item.id === this.currentProject.id))
+        || this.projects[0];
+      const page = this.page("AIプロンプト作業台", "原稿を外部送信せず，ローカルLLMやCodex／Claude Codeへ渡す指示文だけを作成します．", true);
+      if (!project) {
+        page.appendChild(emptyState("対象プロジェクトがありません", "先に論文プロジェクトを作成すると，英文変換・模擬査読・内容補強のプロンプトを生成できます．", "新規作成", () => this.navigate("new")));
+        return;
+      }
+
+      const projectSelect = h("select", { id: "assistant-project", className: "select-input" }, this.projects.map((item) => h("option", { value: item.id, text: item.name, selected: item.id === project.id })));
+      const typeSelect = h("select", { id: "assistant-type", className: "select-input" },
+        h("option", { value: "translate-english", text: "英文変換（日本語 → 英語）" }),
+        h("option", { value: "peer-review", text: "模擬査読" }),
+        h("option", { value: "strengthen-content", text: "内容の補強・拡張" }),
+        h("option", { value: "proofread", text: "誤字・表現修正" }),
+        h("option", { value: "literature-research", text: "文献調査支援" }),
+      );
+      const scopeSelect = h("select", { id: "assistant-scope", className: "select-input" },
+        h("option", { value: "all", text: "原稿全体" }),
+        h("option", { value: "section", text: "1つのセクション" }),
+        h("option", { value: "selected-text", text: "貼り付けた範囲だけ" }),
+        h("option", { value: "diagnostics", text: "診断結果だけ" }),
+        h("option", { value: "metadata", text: "研究情報だけ" }),
+      );
+      const sectionSelect = h("select", { id: "assistant-section", className: "select-input" }, project.manuscript.sections.map((section) => h("option", { value: section.id, text: section.title, selected: section.id === project.ui.activeSectionId })));
+      const runnerSelect = h("select", { id: "assistant-runner", className: "select-input" },
+        h("option", { value: "generic", text: "汎用" }),
+        h("option", { value: "ollama", text: "Ollama" }),
+        h("option", { value: "qwen", text: "Qwen" }),
+        h("option", { value: "codex", text: "Codex" }),
+        h("option", { value: "claude-code", text: "Claude Code" }),
+      );
+      const strictnessSelect = h("select", { id: "assistant-strictness", className: "select-input" },
+        h("option", { value: "light", text: "軽め" }),
+        h("option", { value: "standard", text: "標準", selected: true }),
+        h("option", { value: "strict", text: "厳格" }),
+      );
+      const englishVariantSelect = h("select", { id: "assistant-english-variant", className: "select-input" },
+        h("option", { value: "american", text: "American English", selected: project.englishVariant !== "british" }),
+        h("option", { value: "british", text: "British English", selected: project.englishVariant === "british" }),
+      );
+      const selectedText = h("textarea", { id: "assistant-selected-text", className: "text-area", maxLength: 50000, placeholder: "対象にしたい本文をここへ貼り付けます．" });
+      const additionalRequest = h("textarea", { id: "assistant-additional", className: "text-area", maxLength: 5000, placeholder: "例：制御工学の査読者として，再現性を重点的に確認する" });
+      const sectionField = field("対象セクション", sectionSelect);
+      const selectionField = field("対象範囲の本文", selectedText, "この欄は「貼り付けた範囲だけ」を選んだときに使用します．");
+      sectionField.hidden = true;
+      selectionField.hidden = true;
+      const updateScopeControls = () => {
+        sectionField.hidden = scopeSelect.value !== "section";
+        selectionField.hidden = scopeSelect.value !== "selected-text";
+      };
+
+      const promptOutput = h("textarea", { id: "assistant-prompt-output", className: "source-textarea prompt-output", readOnly: true, spellcheck: false, placeholder: "条件を選び，「プロンプトを作成」を押してください．" });
+      const outputStatus = h("p", { className: "field-help", text: "まだ作成されていません．" });
+      const warningBox = h("div", { className: "notice notice--warning", hidden: true });
+      let lastGeneratedType = "";
+      const copyButton = button("プロンプトをコピー", "button-secondary", async () => {
+        try {
+          await this.copyText(promptOutput.value, promptOutput);
+          this.toast("プロンプトをコピーしました．");
+        } catch (error) {
+          this.toast(error.message, true);
+        }
+      }, { disabled: true });
+      const downloadButton = button("テキスト保存", "button-secondary", () => {
+        if (!promptOutput.value || !lastGeneratedType) return;
+        PT.downloadBlob(new Blob([promptOutput.value], { type: "text/plain;charset=utf-8" }), `${PT.safeFilename(project.name, "paper")}-${lastGeneratedType}-prompt.txt`);
+        this.toast("プロンプトを保存しました．");
+      }, { disabled: true });
+      const invalidatePrompt = () => {
+        const hadPrompt = Boolean(promptOutput.value || lastGeneratedType);
+        promptOutput.value = "";
+        outputStatus.textContent = hadPrompt
+          ? "条件が変更されました．プロンプトを作り直してください．"
+          : "まだ作成されていません．";
+        warningBox.replaceChildren();
+        warningBox.hidden = true;
+        copyButton.disabled = true;
+        downloadButton.disabled = true;
+        lastGeneratedType = "";
+      };
+      typeSelect.addEventListener("change", invalidatePrompt);
+      projectSelect.addEventListener("change", (event) => {
+        invalidatePrompt();
+        this.navigate(`assistant/${encodeURIComponent(event.target.value)}`);
+      });
+      scopeSelect.addEventListener("change", () => {
+        updateScopeControls();
+        invalidatePrompt();
+      });
+      sectionSelect.addEventListener("change", invalidatePrompt);
+      runnerSelect.addEventListener("change", invalidatePrompt);
+      strictnessSelect.addEventListener("change", invalidatePrompt);
+      englishVariantSelect.addEventListener("change", invalidatePrompt);
+      selectedText.addEventListener("input", invalidatePrompt);
+      additionalRequest.addEventListener("input", invalidatePrompt);
+      const generate = () => {
+        invalidatePrompt();
+        try {
+          const diagnostics = (project.manuscript.advice || []).slice();
+          if (typeof PT.auditEvidence === "function") {
+            const audited = PT.auditEvidence(project);
+            const findings = Array.isArray(audited) ? audited : audited && (audited.findings || audited.items);
+            if (Array.isArray(findings)) diagnostics.push(...findings.map((item) => ({
+              severity: item.status === "missing" ? "required" : item.status === "recommended" ? "recommended" : "optional",
+              title: item.title,
+              reason: item.reason,
+              target: item.targetSection,
+              action: item.action,
+              resolved: item.status === "ok",
+            })));
+          }
+          const result = PT.createAiPrompt(project, {
+            type: typeSelect.value,
+            scope: scopeSelect.value,
+            sectionId: sectionSelect.value,
+            selectedText: selectedText.value,
+            runner: runnerSelect.value,
+            strictness: strictnessSelect.value,
+            englishVariant: englishVariantSelect.value,
+            additionalRequest: additionalRequest.value,
+            diagnostics,
+          });
+          promptOutput.value = result.prompt;
+          lastGeneratedType = result.type;
+          outputStatus.textContent = `${result.label}・${result.promptChars.toLocaleString("ja-JP")}文字${result.truncated ? "・一部省略あり" : ""}`;
+          warningBox.replaceChildren();
+          if (result.warnings.length) {
+            warningBox.hidden = false;
+            warningBox.appendChild(h("strong", { text: "確認事項" }));
+            warningBox.appendChild(h("ul", {}, result.warnings.map((message) => h("li", { text: message }))));
+          } else {
+            warningBox.hidden = true;
+          }
+          copyButton.disabled = false;
+          downloadButton.disabled = false;
+        } catch (error) {
+          this.toast(`プロンプトを作成できませんでした：${error.message}`, true);
+        }
+      };
+
+      const controls = h("section", { className: "panel assistant-controls" },
+        h("h2", { text: "1．用途と対象を選ぶ" }),
+        h("div", { className: "form-grid" },
+          field("プロジェクト", projectSelect),
+          field("機能", typeSelect),
+          field("対象範囲", scopeSelect),
+          sectionField,
+          selectionField,
+          field("使用先", runnerSelect, "接続先ではなく，プロンプトの想定先です．"),
+          field("確認の厳しさ", strictnessSelect),
+          field("英文表記", englishVariantSelect),
+          field("追加の指示", additionalRequest, "研究データや未公開情報を含める前に，利用先の取扱いを確認してください．"),
+        ),
+        h("div", { className: "button-row", style: { marginTop: "18px" } }, button("プロンプトを作成", "button", generate), button("原稿を開く", "button-quiet", () => this.navigate(`editor/${encodeURIComponent(project.id)}`))),
+      );
+      const resultPanel = h("section", { className: "panel assistant-result" },
+        h("h2", { text: "2．コピーして利用する" }),
+        h("p", { text: "このアプリからAIへは送信しません．作成した指示文を確認し，自分でローカルLLMやコーディング支援ツールへ貼り付けます．" }),
+        promptOutput,
+        outputStatus,
+        warningBox,
+        h("div", { className: "button-row", style: { marginTop: "16px" } }, copyButton, downloadButton),
+      );
+      page.appendChild(h("div", { className: "notice assistant-privacy" }, h("strong", { text: "外部通信なし" }), h("p", { text: "APIキーは使わず，Ollama／Qwenへの自動接続も行いません．未確認の数値・文献を作らない指示と，返答形式を含むプロンプトだけを生成します．" })));
+      page.appendChild(h("div", { className: "assistant-layout" }, controls, resultPanel));
+    }
+
     renderSettings() {
       const page = this.page("設定", "保存・表記・バックアップの設定です．");
       const stack = h("div", { className: "settings-stack" });
@@ -1663,12 +2034,12 @@
       const uploadLimit = h("input", { id: "setting-upload", className: "text-input", type: "number", min: 1, max: 50, value: this.settings.uploadLimitMb });
       const historyLimit = h("input", { id: "setting-history", className: "text-input", type: "number", min: 5, max: 100, value: this.settings.historyLimit });
       const save = async () => {
-        this.settings = await this.repo.saveSettings({ punctuation: punctuation.value, englishVariant: englishVariant.value === "british" ? "british" : "american", uploadLimitMb: Math.max(1, Math.min(50, Number(uploadLimit.value) || 10)), historyLimit: Math.max(5, Math.min(100, Number(historyLimit.value) || 20)), theme: "light" });
+        this.settings = await this.repo.saveSettings(Object.assign({}, this.settings, { punctuation: punctuation.value, englishVariant: englishVariant.value === "british" ? "british" : "american", uploadLimitMb: Math.max(1, Math.min(50, Number(uploadLimit.value) || 10)), historyLimit: Math.max(5, Math.min(100, Number(historyLimit.value) || 20)), theme: "light" }));
         this.toast("設定を保存しました．");
       };
       stack.append(
         h("section", { className: "panel settings-panel" }, h("h2", { text: "文章と保存" }), h("p", { text: "設定はこのブラウザにのみ保存されます．新しく作るプロジェクトの既定値になります．" }), h("div", { className: "form-grid" }, field("日本語の句読点", punctuation), field("英語表記", englishVariant), field("1ファイルの上限（MB）", uploadLimit), field("履歴の保持件数", historyLimit)), h("div", { className: "button-row", style: { marginTop: "20px" } }, button("設定を保存", "button", save))),
-        h("section", { className: "panel settings-panel" }, h("h2", { text: "外部AI連携" }), h("p", { text: "この静的版はAPIキーを安全に保管できないため，OpenAI互換APIやOllamaへ接続しません．草稿生成と助言はルールベースで完全に端末内動作します．" }), h("div", { className: "notice", style: { marginTop: "16px" } }, h("strong", { text: "外部通信なし" }), h("p", { text: "研究データを利用者の操作なしに送信する処理はありません．" }))),
+        h("section", { className: "panel settings-panel" }, h("h2", { text: "AI支援の境界" }), h("p", { text: "APIキーは保存せず，OpenAI互換APIやOllamaへ自動接続しません．英文変換，模擬査読，内容補強，校正，文献調査は，AI作業台でプロンプトとして作成します．" }), h("div", { className: "notice", style: { marginTop: "16px" } }, h("strong", { text: "利用者が確認してコピー" }), h("p", { text: "研究データを自動送信する処理はありません．Codex，Claude Code，Ollama，Qwenなどへ貼り付ける前に内容を確認してください．" })), h("div", { className: "button-row", style: { marginTop: "16px" } }, button("AI作業台を開く", "button-secondary", () => this.navigate("assistant")))),
         h("section", { className: "panel settings-panel" }, h("h2", { text: "保存領域" }), h("p", { text: `現在：${this.repo.mode === "indexeddb" ? "IndexedDB（推奨）" : this.repo.mode === "localstorage" ? "localStorage（簡易）" : "メモリ（一時）"}` }), h("div", { className: "notice notice--warning", style: { marginTop: "16px" } }, h("p", { text: "ブラウザデータの消去や，file:// からGitHub Pagesへの移動では保存領域が変わります．添付を含む場合はZIP，本文だけならJSONを定期的に保存してください．" }))),
       );
       page.appendChild(stack);
@@ -1678,9 +2049,9 @@
       this.dialog.returnValue = "cancel";
       this.dialogTitle.textContent = "paper_tools の使い方";
       this.dialogBody.replaceChildren(
-        h("ol", {}, h("li", { text: "「新規作成」で用途に近いテンプレートを選びます．" }), h("li", { text: "確認済みの目的・方法・結果だけを入力します．" }), h("li", { text: "生成された草稿のTODOと右側の助言を確認します．" }), h("li", { text: "編集後，ZIPバックアップと印刷PDFを保存します．" })),
+        h("ol", {}, h("li", { text: "「テンプレート」で組込み構成を選ぶか，手元のテンプレートファイルを登録します．" }), h("li", { text: "「新規作成」で確認済みの目的・方法・結果だけを入力します．" }), h("li", { text: "生成された草稿のTODOと，右側の「助言」にある図・データ不足を確認します．" }), h("li", { text: "英文変換や模擬査読は「AI作業台」で指示文を作り，内容を確認して使用先へ貼り付けます．" }), h("li", { text: "編集後，ZIPバックアップと印刷PDFを保存します．" })),
         h("p", { text: "本文で参考文献を引用するときは，登録した引用キーの前に @ を付けます（例：@smith2026）．印刷PDFでは文献番号へ変換されます．" }),
-        h("div", { className: "notice", style: { marginTop: "16px" } }, h("p", { text: "index.htmlはそのままダブルクリックで起動できます．Pythonやサーバーは不要です．" })),
+        h("div", { className: "notice", style: { marginTop: "16px" } }, h("p", { text: "index.htmlはそのままダブルクリックで起動できます．Python，サーバー，APIキーは不要です．AI作業台も自動送信は行わず，プロンプトだけを生成します．" })),
       );
       this.dialogActions.replaceChildren(button("閉じる", "button", () => this.dialog.close("cancel")));
       this.dialog.showModal();

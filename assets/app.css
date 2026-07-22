@@ -849,6 +849,87 @@ li[aria-current="step"] .step-number,
   font-size: 0.84rem;
 }
 
+.template-import-panel {
+  margin-bottom: 22px;
+}
+
+.template-import-panel .notice {
+  margin-top: 14px;
+}
+
+.template-interpretation-note {
+  margin: 0 0 14px;
+  padding: 11px 12px;
+  color: var(--ink);
+  background: var(--warning-soft, #fff7df);
+  border: 1px solid var(--warning, #d59616);
+  border-radius: 10px;
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+
+.template-interpretation-note strong {
+  display: block;
+  margin-bottom: 5px;
+}
+
+.template-interpretation-note ul {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.template-interpretation-note li + li {
+  margin-top: 4px;
+}
+
+.assistant-privacy {
+  margin-bottom: 20px;
+}
+
+.assistant-layout {
+  display: grid;
+  grid-template-columns: minmax(360px, 0.85fr) minmax(460px, 1.15fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.assistant-controls,
+.assistant-result {
+  min-width: 0;
+}
+
+.assistant-controls .text-area {
+  min-height: 108px;
+}
+
+.prompt-output {
+  min-height: 560px;
+  margin-top: 12px;
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+
+.evidence-heading {
+  margin-top: 30px;
+  padding-top: 22px;
+  border-top: 1px solid var(--line);
+}
+
+.evidence-card .field-help {
+  display: block;
+  margin-top: 8px;
+}
+
+@media (max-width: 1200px) {
+  .assistant-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .prompt-output {
+    min-height: 420px;
+  }
+}
+
 .filter-bar {
   display: flex;
   flex-wrap: wrap;

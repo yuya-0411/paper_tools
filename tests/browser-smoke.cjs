@@ -8,6 +8,7 @@ const { pathToFileURL } = require("node:url");
 
 const APP_READY_TIMEOUT_MS = 20_000;
 const DEVTOOLS_TIMEOUT_MS = 10_000;
+const CDP_COMMAND_TIMEOUT_MS = 15_000;
 const POLL_INTERVAL_MS = 100;
 
 function delay(milliseconds) {
@@ -155,7 +156,7 @@ class CdpSession {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error(`${method} がタイムアウトしました．`));
-      }, 5_000);
+      }, CDP_COMMAND_TIMEOUT_MS);
       this.pending.set(id, { resolve, reject, timer });
       this.socket.send(JSON.stringify({ id, method, params }));
     });
@@ -213,6 +214,63 @@ async function waitForApplication(session) {
 
   const diagnostic = lastState ? JSON.stringify(lastState) : String(lastError || "状態を取得できませんでした");
   throw new Error(`アプリが ${APP_READY_TIMEOUT_MS / 1000} 秒以内に準備完了しませんでした: ${diagnostic}`);
+}
+
+async function waitForRoute(session, hash, marker) {
+  await session.command("Runtime.evaluate", {
+    expression: `location.hash = ${JSON.stringify(hash)}; true`,
+    returnByValue: true,
+  });
+  const expression = `(() => {
+    const text = document.body?.innerText || "";
+    return {
+      hash: location.hash,
+      markerFound: text.includes(${JSON.stringify(marker)}),
+      fatal: text.includes("画面を表示できませんでした"),
+      bodyPreview: text.slice(0, 500),
+    };
+  })()`;
+  const deadline = Date.now() + APP_READY_TIMEOUT_MS;
+  let lastState = null;
+
+  while (Date.now() < deadline) {
+    try {
+      const evaluation = await session.command("Runtime.evaluate", {
+        expression,
+        returnByValue: true,
+      });
+      lastState = evaluation.result?.value || null;
+      if (lastState?.fatal) {
+        throw new Error(`${hash} の表示中にアプリ内エラーが発生しました: ${JSON.stringify(lastState)}`);
+      }
+      if (lastState?.hash === hash && lastState.markerFound) return lastState;
+    } catch (error) {
+      if (error.message.includes("アプリ内エラー")) throw error;
+      // 画面切替中に実行コンテキストが変わった場合は再試行する．
+    }
+    await delay(POLL_INTERVAL_MS);
+  }
+
+  throw new Error(`${hash} を表示できませんでした: ${JSON.stringify(lastState)}`);
+}
+
+async function waitForEvaluation(session, expression, isReady, description) {
+  const deadline = Date.now() + APP_READY_TIMEOUT_MS;
+  let lastState = null;
+  while (Date.now() < deadline) {
+    try {
+      const evaluation = await session.command("Runtime.evaluate", {
+        expression,
+        returnByValue: true,
+      });
+      lastState = evaluation.result?.value || null;
+      if (isReady(lastState)) return lastState;
+    } catch {
+      // 非同期再描画中に実行コンテキストが変わった場合は再試行する．
+    }
+    await delay(POLL_INTERVAL_MS);
+  }
+  throw new Error(`${description}: ${JSON.stringify(lastState)}`);
 }
 
 function safeRemoveProfile(profileDirectory) {
@@ -278,8 +336,113 @@ async function main() {
     session = new CdpSession(target.webSocketDebuggerUrl);
     await session.open();
     const state = await waitForApplication(session);
+    const routes = [];
+    routes.push(await waitForRoute(session, "#templates", "テンプレートを自動登録"));
+    await session.command("Runtime.evaluate", {
+      expression: `(() => {
+        const input = document.getElementById("template-import-input");
+        const dispatchTemplate = (name, source) => {
+          const transfer = new DataTransfer();
+          transfer.items.add(new File([source], name, { type: "text/markdown" }));
+          input.files = transfer.files;
+          input.dispatchEvent(new Event("change", { bubbles: true }));
+        };
+        dispatchTemplate(
+          "smoke-template.md",
+          "# Smoke Template\\n## Abstract\\n## Method\\n## Results\\n## References",
+        );
+        dispatchTemplate(
+          "racing-template.md",
+          "# Racing Template\\n## Introduction\\n## Conclusion",
+        );
+        return true;
+      })()`,
+      returnByValue: true,
+    });
+    routes.push(await waitForRoute(session, "#templates", "Smoke Template"));
+    const templateRegistration = await waitForEvaluation(
+      session,
+      `(() => {
+        const custom = PaperTools.listCustomTemplates();
+        return {
+          customCount: custom.length,
+          expectedRegistered: custom.some((item) => item.name === "Smoke Template"),
+          concurrentRejected: !custom.some((item) => item.name === "Racing Template"),
+        };
+      })()`,
+      (value) => Boolean(value && value.customCount === 1 && value.expectedRegistered && value.concurrentRejected),
+      "テンプレート登録の排他制御を確認できませんでした",
+    );
+
+    const projectEvaluation = await session.command("Runtime.evaluate", {
+      expression: `(async () => {
+        const repository = new PaperTools.Repository();
+        await repository.init();
+        const project = PaperTools.createProject("generic-ja", { title: "UI smoke paper" });
+        project.name = "UI smoke project";
+        project.research.objective = "ブラウザー統合確認";
+        project.manuscript.sections[0].content = "これは英文変換対象の日本語本文です．";
+        await repository.saveProject(project);
+        const secondProject = PaperTools.createProject("generic-ja", { title: "Second UI smoke paper" });
+        secondProject.name = "Second UI smoke project";
+        await repository.saveProject(secondProject);
+        return { primaryId: project.id, secondaryId: secondProject.id };
+      })()`,
+      awaitPromise: true,
+      returnByValue: true,
+    });
+    const projectIds = projectEvaluation.result?.value;
+    if (!projectIds?.primaryId || !projectIds?.secondaryId) throw new Error("ブラウザースモーク用プロジェクトを作成できませんでした．");
+    routes.push(await waitForRoute(session, `#assistant/${encodeURIComponent(projectIds.primaryId)}`, "1．用途と対象を選ぶ"));
+    await session.command("Runtime.evaluate", {
+      expression: `(() => {
+        const trigger = Array.from(document.querySelectorAll("button"))
+          .find((item) => item.textContent.trim() === "プロンプトを作成");
+        if (!trigger) return false;
+        trigger.click();
+        return true;
+      })()`,
+      returnByValue: true,
+    });
+    const prompt = await waitForEvaluation(
+      session,
+      `(() => {
+        const output = document.getElementById("assistant-prompt-output");
+        return {
+          promptChars: output?.value?.length || 0,
+          hasContract: Boolean(output?.value?.includes('"task": "translate-english"')),
+          fatal: (document.body?.innerText || "").includes("画面を表示できませんでした"),
+        };
+      })()`,
+      (value) => Boolean(value && !value.fatal && value.promptChars > 500 && value.hasContract),
+      "AI作業台でプロンプトを生成できませんでした",
+    );
+    const immediateSwitch = await session.command("Runtime.evaluate", {
+      expression: `(() => {
+        const select = document.getElementById("assistant-project");
+        const output = document.getElementById("assistant-prompt-output");
+        select.value = ${JSON.stringify(projectIds.secondaryId)};
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+        return { promptChars: output.value.length, hash: location.hash };
+      })()`,
+      returnByValue: true,
+    });
+    if (immediateSwitch.result?.value?.promptChars !== 0) {
+      throw new Error(`プロジェクト変更時に古いプロンプトが残りました: ${JSON.stringify(immediateSwitch.result?.value)}`);
+    }
+    routes.push(await waitForRoute(session, `#assistant/${encodeURIComponent(projectIds.secondaryId)}`, "1．用途と対象を選ぶ"));
+    const projectSwitch = await waitForEvaluation(
+      session,
+      `(() => {
+        const select = document.getElementById("assistant-project");
+        const output = document.getElementById("assistant-prompt-output");
+        return { selectedProject: select?.value || "", promptChars: output?.value?.length || 0 };
+      })()`,
+      (value) => Boolean(value && value.selectedProject === projectIds.secondaryId && value.promptChars === 0),
+      "AI作業台のプロジェクト変更を確認できませんでした",
+    );
     process.stdout.write(
-      `Browser smoke test passed (${path.basename(browserExecutable)}): ${JSON.stringify(state)}\n`,
+      `Browser smoke test passed (${path.basename(browserExecutable)}): ${JSON.stringify({ home: state, routes, templateRegistration, prompt, projectSwitch })}\n`,
     );
   } catch (error) {
     if (stderr.trim()) {

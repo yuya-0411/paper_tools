@@ -231,14 +231,19 @@
   }
 
   function normalizeProject(project) {
+    var source = isObject(project) ? project : {};
     var templateId = readValue(project, ["templateId", "template_id"]);
-    var template = findTemplate(templateId || "generic-ja");
+    var embeddedTemplate = typeof namespace.normalizeTemplateDefinition === "function"
+      ? namespace.normalizeTemplateDefinition(source.templateDefinition)
+      : null;
+    var template = embeddedTemplate && embeddedTemplate.id === templateId
+      ? embeddedTemplate
+      : findTemplate(templateId || "generic-ja");
     var language = readValue(project, ["language", "paperLanguage", "paper_language"]);
     var fields = {};
     Object.keys(FIELD_ALIASES).forEach(function (name) {
       fields[name] = readField(project, name);
     });
-    var source = isObject(project) ? project : {};
     var instructions = isObject(source.instructions) ? source.instructions : {};
     var explicitInstruction =
       readValue(project, ["overallInstruction", "overall_instruction"]) ||
@@ -806,6 +811,10 @@
         );
     }
 
+    var templateGuidance = normalizeText(sectionSpec.guidance);
+    if (templateGuidance) {
+      lines.push(verify(language, "登録テンプレートの要件: " + templateGuidance, "Imported template requirement: " + templateGuidance));
+    }
     var instruction = instructionText(model, id);
     if (instruction) {
       lines.push("");
@@ -847,6 +856,9 @@
         titleEn:
           normalizeText(value.titleEn || value.title_en) ||
           (templateSection && normalizeText(templateSection.titleEn || templateSection.title_en)),
+        guidance:
+          normalizeText(value.guidance) ||
+          (templateSection && normalizeText(templateSection.guidance)),
       };
     });
   }

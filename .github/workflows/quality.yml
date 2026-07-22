@@ -27,5 +27,12 @@ jobs:
       - name: Run dependency-free tests
         run: node tests/node-tests.cjs
 
+      - name: Run feature engine tests
+        shell: bash
+        run: |
+          node tests/custom-template-tests.cjs
+          node tests/evidence-audit-tests.cjs
+          node tests/ai-prompt-tests.cjs
+
       - name: Smoke-test the double-click UI in Chrome
         run: node --experimental-websocket tests/browser-smoke.cjs --browser google-chrome

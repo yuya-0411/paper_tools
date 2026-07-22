@@ -782,6 +782,41 @@
         assert(PT.renderTypst(normalized).includes("ORCID: 0000-0001-2345-6789"), "ORCID missing from Typst");
       },
     },
+    {
+      name: "アップロードしたテンプレートを登録しプロジェクトへ埋め込む",
+      run: () => {
+        const interpreted = PT.analyzeCustomTemplate({ name: "lab.md", text: "# 実験論文\n## 概要\n## 方法\n## 実験条件\n## 結果\n## 結論\n## 参考文献" });
+        assert(interpreted.ok, "custom template interpretation failed");
+        const normalizedTemplate = PT.normalizeTemplateDefinition(interpreted.template);
+        const registered = PT.registerCustomTemplate(normalizedTemplate);
+        const project = PT.createProject(registered.id, { title: "登録テンプレート試験" });
+        assert(project.templateDefinition && project.templateDefinition.id === registered.id, "custom template was not embedded");
+        PT.unregisterCustomTemplate(registered.id);
+        const restored = PT.normalizeProject(project);
+        assert(restored.manuscript.sections.some((section) => section.id === "experimental-setup"), "embedded template outline was lost");
+      },
+    },
+    {
+      name: "不足する図・データを独立して診断する",
+      run: () => {
+        const project = sampleProject("ja");
+        const audit = PT.auditEvidence(project);
+        assert(audit.findings.some((item) => item.ruleId === "results.visual" && item.status === "recommended"), "result visual suggestion missing");
+        assert(audit.findings.some((item) => item.ruleId === "numeric.trial-count" && item.status === "missing"), "trial-count evidence gap missing");
+      },
+    },
+    {
+      name: "AIへ接続せず英文変換と模擬査読のプロンプトを作る",
+      run: () => {
+        const project = sampleProject("ja");
+        const translation = PT.createAiPrompt(project, { type: "translate-english", runner: "qwen", englishVariant: "british" });
+        assert(translation.prompt.includes("British English (en-GB)"), "English variant instruction missing");
+        assert(translation.prompt.includes('"task": "translate-english"'), "translation output contract missing");
+        const review = PT.buildAiPrompt(project, { type: "peer-review", strictness: "strict", runner: "ollama" });
+        assert(review.includes('"majorComments"'), "peer review contract missing");
+        assert(review.includes("実在する学術誌や査読者の判断を装わない"), "review impersonation guard missing");
+      },
+    },
   ];
 
   async function run(report) {

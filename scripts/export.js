@@ -37,6 +37,14 @@
     return isObject(project) && isObject(project.manuscript) ? project.manuscript : {};
   }
 
+  function templateOf(project) {
+    var embedded = project && typeof PaperTools.normalizeTemplateDefinition === "function"
+      ? PaperTools.normalizeTemplateDefinition(project.templateDefinition)
+      : null;
+    if (embedded && embedded.id === project.templateId) return embedded;
+    return PaperTools.templateMap && PaperTools.templateMap[project && project.templateId];
+  }
+
   function researchOf(project) {
     return isObject(project) && isObject(project.research) ? project.research : {};
   }
@@ -218,7 +226,7 @@
     output.push("]");
 
     var sections = preparedSections(project);
-    var template = PaperTools.templateMap && PaperTools.templateMap[project.templateId];
+    var template = templateOf(project);
     var twoColumn = template && template.layout === "two-column";
     var abstract = abstractOf(project);
     var hasAbstractSection = sections.some(function (section) {
@@ -918,7 +926,7 @@
       if (assetSources instanceof Map) return assetSources.get(id) || "";
       return isObject(assetSources) ? assetSources[id] || "" : "";
     };
-    var printTemplate = PaperTools.templateMap && PaperTools.templateMap[project.templateId];
+    var printTemplate = templateOf(project);
     var twoColumn = printTemplate && printTemplate.layout === "two-column";
     var renderSectionWithAssets = function (section) {
         var markup = renderSectionHtml(section, 2, citationNumbers);

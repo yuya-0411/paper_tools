@@ -27,7 +27,12 @@ jobs:
         uses: actions/configure-pages@v6
 
       - name: Verify browser logic
-        run: node tests/node-tests.cjs
+        shell: bash
+        run: |
+          node tests/node-tests.cjs
+          node tests/custom-template-tests.cjs
+          node tests/evidence-audit-tests.cjs
+          node tests/ai-prompt-tests.cjs
 
       - name: Prepare public files
         shell: bash

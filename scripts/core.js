@@ -176,6 +176,77 @@
     };
   }
 
+  function normalizeTemplateDefinition(value) {
+    if (!value || typeof value !== "object") return null;
+    const id = plainText(value.id, 100).trim();
+    if (!/^custom-[a-z0-9][a-z0-9_-]{0,56}$/.test(id)) return null;
+    const seen = new Set();
+    const sections = (Array.isArray(value.sections) ? value.sections : []).slice(0, 60).map((item, index) => {
+      const rawId = plainText(item && item.id, 100)
+        .normalize("NFKC")
+        .toLowerCase()
+        .replace(/[^a-z0-9-]+/g, "-")
+        .replace(/^-+|-+$/g, "") || `section-${index + 1}`;
+      let sectionId = rawId;
+      let suffix = 2;
+      while (seen.has(sectionId)) {
+        sectionId = `${rawId}-${suffix}`;
+        suffix += 1;
+      }
+      seen.add(sectionId);
+      const title = plainText(item && (item.title || item.titleJa || item.titleEn), 300).trim() || `Section ${index + 1}`;
+      return {
+        id: sectionId,
+        title,
+        titleJa: plainText(item && (item.titleJa || item.title), 300).trim() || title,
+        titleEn: plainText(item && (item.titleEn || item.title), 300).trim() || title,
+        guidance: plainText(item && item.guidance, 2000).trim(),
+      };
+    });
+    if (!sections.length) return null;
+    const allowedRequired = new Set(["title", "references", ...RESEARCH_FIELDS]);
+    const requiredInputs = (Array.isArray(value.requiredInputs) ? value.requiredInputs : ["title"])
+      .map((item) => plainText(item, 80).trim())
+      .filter((item, index, items) => allowedRequired.has(item) && items.indexOf(item) === index)
+      .slice(0, 30);
+    return {
+      customTemplateVersion: 1,
+      id,
+      name: plainText(value.name || "登録テンプレート", 200).trim() || "登録テンプレート",
+      language: value.language === "en" ? "en" : "ja",
+      languages: Array.isArray(value.languages) && value.languages.includes("en") && value.languages.includes("ja")
+        ? ["ja", "en"]
+        : [value.language === "en" ? "en" : "ja"],
+      type: plainText(value.type || "research-paper", 80).trim() || "research-paper",
+      documentTypes: (Array.isArray(value.documentTypes) ? value.documentTypes : [value.type || "research-paper"])
+        .map((item) => plainText(item, 80).trim())
+        .filter(Boolean)
+        .slice(0, 12),
+      description: plainText(value.description || "アップロードしたファイルから自動解釈したテンプレートです．", 1000).trim(),
+      layout: value.layout === "two-column" ? "two-column" : "single-column",
+      requiredInputs: requiredInputs.length ? requiredInputs : ["title"],
+      sections,
+      sectionIds: sections.map((section) => section.id),
+      custom: true,
+      isCustom: true,
+      source: {
+        kind: plainText(value.source && value.source.kind, 80).trim(),
+        filename: plainText(value.source && value.source.filename, 260).trim(),
+        format: plainText(value.source && value.source.format, 40).trim(),
+        importedAt: plainText(value.source && value.source.importedAt, 40).trim(),
+        fingerprint: plainText(value.source && value.source.fingerprint, 80).trim(),
+        byteLength: Math.max(0, Math.min(524288, Number(value.source && value.source.byteLength) || 0)),
+      },
+      interpretation: {
+        confidence: Math.max(0, Math.min(1, Number(value.interpretation && value.interpretation.confidence) || 0)),
+        warnings: (Array.isArray(value.interpretation && value.interpretation.warnings) ? value.interpretation.warnings : [])
+          .map((item) => plainText(item, 500).trim())
+          .filter(Boolean)
+          .slice(0, 20),
+      },
+    };
+  }
+
   function createProject(templateId, seed) {
     const template = getTemplate(templateId || "generic-ja");
     const createdAt = nowIso();
@@ -193,6 +264,7 @@
       targetAudience: input.targetAudience || "",
       submissionNotes: input.submissionNotes || "",
       templateId: template.id,
+      templateDefinition: template.isCustom ? normalizeTemplateDefinition(template) : null,
       punctuation: input.punctuation || "ja-comma-period",
       status: "draft",
       createdAt,
@@ -220,7 +292,10 @@
 
   function normalizeProject(project) {
     const source = project || {};
-    const template = getTemplate(source.templateId || "generic-ja");
+    const embeddedTemplate = normalizeTemplateDefinition(source.templateDefinition);
+    const template = embeddedTemplate && embeddedTemplate.id === source.templateId
+      ? embeddedTemplate
+      : getTemplate(source.templateId || "generic-ja");
     const normalized = {};
     normalized.schemaVersion = SCHEMA_VERSION;
     normalized.id = plainText(source.id || makeId("project"), 120);
@@ -234,6 +309,7 @@
     normalized.targetAudience = plainText(source.targetAudience, 1000);
     normalized.submissionNotes = plainText(source.submissionNotes, 5000);
     normalized.templateId = plainText(source.templateId || template.id, 100);
+    normalized.templateDefinition = template.isCustom ? normalizeTemplateDefinition(template) : null;
     normalized.punctuation = source.punctuation === "ja-standard" ? "ja-standard" : "ja-comma-period";
     normalized.status = ["draft", "generated", "completed", "failed"].includes(source.status)
       ? source.status
@@ -445,6 +521,7 @@
     extensionOf,
     normalizeCitationKey,
     normalizeReferenceDate,
+    normalizeTemplateDefinition,
     validateUpload,
     deepClone,
     getTemplate,

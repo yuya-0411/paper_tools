@@ -43,6 +43,7 @@
             <a href="#projects" data-nav="projects"><span aria-hidden="true">□</span>プロジェクト</a>
             <a href="#new" data-nav="new"><span aria-hidden="true">＋</span>新規作成</a>
             <a href="#templates" data-nav="templates"><span aria-hidden="true">▤</span>テンプレート</a>
+            <a href="#assistant" data-nav="assistant"><span aria-hidden="true">✦</span>AI作業台</a>
           </nav>
           <div class="sidebar__secondary">
             <a href="#settings" data-nav="settings"><span aria-hidden="true">⚙</span>設定</a>
@@ -82,6 +83,12 @@
       accept="application/json,application/zip,.json,.zip"
       hidden
     />
+    <input
+      id="template-import-input"
+      type="file"
+      accept="application/json,text/plain,text/markdown,text/html,.json,.md,.markdown,.txt,.typ,.typst,.tex,.latex,.html,.htm"
+      hidden
+    />
 
     <noscript>
       <div class="noscript-message">
@@ -91,12 +98,15 @@
     </noscript>
 
     <script defer src="./scripts/templates.js"></script>
+    <script defer src="./scripts/custom-templates.js"></script>
     <script defer src="./scripts/core.js"></script>
     <script defer src="./scripts/references.js"></script>
     <script defer src="./scripts/storage.js"></script>
     <script defer src="./scripts/generator.js"></script>
+    <script defer src="./scripts/evidence-audit.js"></script>
     <script defer src="./scripts/zip.js"></script>
     <script defer src="./scripts/export.js"></script>
+    <script defer src="./scripts/ai-prompts.js"></script>
     <script defer src="./scripts/ui.js"></script>
   </body>
 </html>
