@@ -18,3 +18,5 @@
 *.webp binary
 *.pdf binary
 *.zip binary
+
+scripts/vendor/*.min.js -diff -text linguist-generated=true

@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       - name: Check JavaScript syntax
         shell: bash
@@ -30,9 +30,14 @@ jobs:
       - name: Run feature engine tests
         shell: bash
         run: |
+          set -euo pipefail
           node tests/custom-template-tests.cjs
           node tests/evidence-audit-tests.cjs
           node tests/ai-prompt-tests.cjs
+          node tests/storage-sync-tests.cjs
+          node tests/cloud-sync-tests.cjs
+          node tests/schema-security-tests.cjs
+          node tests/deployment-security-tests.cjs
 
       - name: Smoke-test the double-click UI in Chrome
-        run: node --experimental-websocket tests/browser-smoke.cjs --browser google-chrome
+        run: node --experimental-websocket tests/browser-smoke.cjs

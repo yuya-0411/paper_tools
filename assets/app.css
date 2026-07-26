@@ -1189,6 +1189,58 @@ li[aria-current="step"] .step-number,
   gap: 18px;
 }
 
+.cloud-login-panel {
+  max-width: 880px;
+}
+
+.cloud-security-notice,
+.cloud-project-grid,
+.cloud-account-panel + .notice,
+.notice + .cloud-project-grid {
+  margin-top: 18px;
+}
+
+.cloud-account-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.cloud-account-row h2,
+.cloud-account-row p,
+.cloud-project-card h3 {
+  margin: 0;
+}
+
+.cloud-account-row p {
+  margin-top: 6px;
+  color: var(--muted);
+}
+
+.cloud-project-card {
+  display: flex;
+  min-height: 220px;
+  flex-direction: column;
+}
+
+.cloud-project-card h3 {
+  margin-top: 10px;
+}
+
+.cloud-project-card > p {
+  margin: 8px 0 0;
+}
+
+.cloud-project-card .card__actions {
+  margin-top: auto;
+}
+
+.cloud-error-text {
+  color: var(--danger) !important;
+  overflow-wrap: anywhere;
+}
+
 .settings-panel h2,
 .settings-panel p {
   margin: 0;
@@ -1495,7 +1547,8 @@ li[aria-current="step"] .step-number,
 
   .asset-row,
   .reference-row,
-  .history-row {
+  .history-row,
+  .cloud-account-row {
     align-items: flex-start;
     flex-direction: column;
   }

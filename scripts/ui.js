@@ -91,6 +91,8 @@
       this.storageStatus = document.getElementById("storage-status");
       this.storageDot = document.getElementById("storage-dot");
       this.saveState = document.getElementById("save-state");
+      this.privacyModeTitle = document.getElementById("privacy-mode-title");
+      this.privacyModeDetail = document.getElementById("privacy-mode-detail");
       this.sidebar = document.getElementById("sidebar");
       this.dialog = document.getElementById("app-dialog");
       this.dialogTitle = document.getElementById("dialog-title");
@@ -121,6 +123,17 @@
       this.wizardDirty = false;
       this.wizardFinishing = false;
       this.templateMutationInFlight = false;
+      this.cloud = null;
+      this.cloudStatus = { enabled: false, ready: false };
+      this.cloudSession = { signedIn: false, user: null, expiresAt: null };
+      this.cloudAuthEpoch = 0;
+      this.cloudProjects = [];
+      this.cloudFetchError = "";
+      this.cloudError = "";
+      this.cloudBusy = false;
+      this.cloudOperationHash = "";
+      this.cloudAuthUnsubscribe = null;
+      this.pendingCloudEmail = "";
     }
 
     async init() {
@@ -128,6 +141,7 @@
       await this.repo.init();
       this.settings = await this.repo.getSettings();
       this.registerStoredCustomTemplates();
+      await this.initCloudSync();
       const recoveredCount = await this.repo.recoverEmergencyProjects();
       await this.refreshProjects();
       this.storageDot.classList.add(this.repo.mode === "indexeddb" ? "is-ready" : "is-warning");
@@ -139,6 +153,96 @@
             : "一時利用モード";
       if (recoveredCount) this.toast(`${recoveredCount}件の終了直前の編集を回復しました．`);
       await this.renderRoute();
+    }
+
+    async initCloudSync() {
+      const config = root.PAPER_TOOLS_CLOUD || { enabled: false };
+      if (typeof PT.createCloudSync !== "function") {
+        this.cloudError = "クラウド同期モジュールを読み込めませんでした．端末内保存は利用できます．";
+        this.updatePrivacyMode();
+        return;
+      }
+      try {
+        this.cloud = PT.createCloudSync(config);
+        this.cloudStatus = this.cloud.getStatus();
+        if (this.cloudStatus.enabled) {
+          this.setCloudSession(await this.cloud.getSession());
+          this.cloudAuthUnsubscribe = this.cloud.subscribeAuth((change) => {
+            this.setCloudSession(change.session);
+            if (this.route().name === "cloud") this.renderRoute();
+          });
+        }
+      } catch (error) {
+        this.cloud = null;
+        this.cloudStatus = { enabled: false, ready: false };
+        this.cloudError = error && error.message ? error.message : "クラウド同期を初期化できませんでした．";
+      }
+      this.updatePrivacyMode();
+    }
+
+    setCloudSession(session) {
+      const next = session && session.signedIn && session.user && session.user.id
+        ? session
+        : { signedIn: false, user: null, expiresAt: null };
+      const previousOwner = this.cloudSession && this.cloudSession.signedIn && this.cloudSession.user
+        ? this.cloudSession.user.id
+        : "";
+      const nextOwner = next.signedIn ? next.user.id : "";
+      if (previousOwner !== nextOwner) {
+        this.cloudAuthEpoch += 1;
+        this.cloudProjects = [];
+      }
+      this.cloudSession = next;
+      if (!next.signedIn) this.cloudProjects = [];
+      this.updatePrivacyMode();
+    }
+
+    captureCloudIdentity() {
+      if (!this.cloudSession || !this.cloudSession.signedIn || !this.cloudSession.user || !this.cloudSession.user.id) {
+        const error = new Error("クラウド操作にはログインが必要です．");
+        error.code = "cloud-auth-changed";
+        throw error;
+      }
+      return Object.freeze({
+        ownerId: this.cloudSession.user.id,
+        epoch: this.cloudAuthEpoch,
+      });
+    }
+
+    cloudIdentityIsCurrent(identity) {
+      return Boolean(
+        identity
+        && this.cloudSession
+        && this.cloudSession.signedIn
+        && this.cloudSession.user
+        && this.cloudSession.user.id === identity.ownerId
+        && this.cloudAuthEpoch === identity.epoch
+      );
+    }
+
+    assertCloudIdentity(identity) {
+      if (this.cloudIdentityIsCurrent(identity)) return;
+      const error = new Error("同期中にログイン状態が変わったため，処理を安全に停止しました．現在のアカウントを確認してやり直してください．");
+      error.code = "cloud-auth-changed";
+      throw error;
+    }
+
+    async cloudCall(identity, operation) {
+      this.assertCloudIdentity(identity);
+      const result = await operation();
+      this.assertCloudIdentity(identity);
+      return result;
+    }
+
+    updatePrivacyMode() {
+      if (!this.privacyModeTitle || !this.privacyModeDetail) return;
+      if (this.cloudSession && this.cloudSession.signedIn) {
+        this.privacyModeTitle.textContent = "同期アカウント接続中";
+        this.privacyModeDetail.textContent = "選択した原稿・添付だけを，明示的な同期操作でクラウドへ保存します．";
+      } else {
+        this.privacyModeTitle.textContent = "端末内モード";
+        this.privacyModeDetail.textContent = "同期を有効にしてログインするまで，入力内容を外部へ送信しません．";
+      }
     }
 
     registerStoredCustomTemplates() {
@@ -157,7 +261,20 @@
     }
 
     bindShell() {
-      root.addEventListener("hashchange", () => this.renderRoute());
+      root.addEventListener("hashchange", () => {
+        if (this.cloudBusy && this.cloudOperationHash) {
+          if (root.location.hash !== this.cloudOperationHash) {
+            if (root.history && typeof root.history.replaceState === "function") {
+              root.history.replaceState(null, "", this.cloudOperationHash);
+            } else {
+              root.location.hash = this.cloudOperationHash;
+            }
+          }
+          this.toast("同期処理が終わるまで画面を移動できません．");
+          return;
+        }
+        this.renderRoute();
+      });
       root.addEventListener("pagehide", () => {
         this.persistEmergencyDrafts();
         this.flushPendingSaves();
@@ -173,7 +290,14 @@
         this.sidebar.classList.toggle("is-open");
       });
       document.querySelectorAll("[data-nav]").forEach((link) => {
-        link.addEventListener("click", () => this.sidebar.classList.remove("is-open"));
+        link.addEventListener("click", (event) => {
+          if (this.cloudBusy && this.cloudOperationHash) {
+            event.preventDefault();
+            this.toast("同期処理が終わるまで画面を移動できません．");
+            return;
+          }
+          this.sidebar.classList.remove("is-open");
+        });
       });
       document.getElementById("open-guide").addEventListener("click", () => this.showGuide());
       this.importInput.addEventListener("change", (event) => this.importProject(event));
@@ -206,6 +330,10 @@
     }
 
     navigate(route) {
+      if (this.cloudBusy && this.cloudOperationHash) {
+        this.toast("同期処理が終わるまで画面を移動できません．");
+        return;
+      }
       const target = `#${String(route).replace(/^#/, "")}`;
       if (root.location.hash === target) this.renderRoute();
       else root.location.hash = target;
@@ -265,6 +393,7 @@
             else if (route.name === "new") await this.renderWizard(route.id, route.step);
             else if (route.name === "templates") await this.renderTemplates();
             else if (route.name === "assistant") await this.renderAssistant(route.id);
+            else if (route.name === "cloud") await this.renderCloud();
             else if (route.name === "settings") this.renderSettings();
             else if (route.name === "editor") await this.openEditor(route.id);
             else this.navigate("home");
@@ -1030,6 +1159,7 @@
       this.main.replaceChildren(page);
       this.contextActions.replaceChildren(
         button("保存", "button-secondary", () => this.saveCurrentProject(true)),
+        button("端末間同期", "button-secondary", () => this.navigate("cloud")),
         button("AI作業台", "button-secondary", () => this.navigate(`assistant/${encodeURIComponent(project.id)}`)),
         button("Typst一式", "button-secondary", () => this.downloadTypst(project)),
         button("ZIPバックアップ", "button-secondary", () => this.downloadArchive(project)),
@@ -1619,7 +1749,19 @@
     }
 
     async deleteProject(project) {
-      const ok = await this.confirm("プロジェクトを削除", `「${project.name}」をこのブラウザから削除します．この操作は元に戻せません．`, "削除する", true);
+      const ownerId = this.cloudSession && this.cloudSession.signedIn ? this.cloudSession.user.id : null;
+      let linkedMeta = null;
+      if (ownerId) {
+        try {
+          linkedMeta = await this.repo.getSyncMeta(ownerId, project.id);
+        } catch (_error) {
+          linkedMeta = null;
+        }
+      }
+      const cloudNote = linkedMeta && linkedMeta.revision
+        ? " クラウド版は削除せず，他の端末から再取得できます．"
+        : "";
+      const ok = await this.confirm("プロジェクトを削除", `「${project.name}」をこのブラウザから削除します．この操作は元に戻せません．${cloudNote}`, "削除する", true);
       if (!ok) return;
       try {
         const savesCompleted = await this.flushPendingSaves();
@@ -1627,6 +1769,15 @@
         if (this.wizardDraft && this.wizardDraft.id === project.id && !(await this.flushWizardSave())) return;
         this.deletedProjectIds.add(project.id);
         await this.repo.deleteProject(project.id);
+        if (ownerId) {
+          try {
+            await this.repo.deleteSyncMeta(ownerId, project.id);
+            await this.clearProjectOutbox(ownerId, project.id);
+          } catch (_error) {
+            // The local manuscript has already been deleted; stale sidecar data
+            // is owner-scoped and can be repaired on the next cloud import.
+          }
+        }
         this.staleProjectObjects.add(project);
         this.dirtyProjects.delete(project.id);
         if (this.currentProject && this.currentProject.id === project.id) this.currentProject = null;
@@ -1637,7 +1788,7 @@
           this.wizardDirty = false;
         }
         await this.refreshProjects();
-        this.toast("プロジェクトを削除しました．");
+        this.toast(linkedMeta && linkedMeta.revision ? "この端末から削除しました．クラウド版は残っています．" : "プロジェクトを削除しました．");
         await this.renderRoute();
       } catch (error) {
         this.deletedProjectIds.delete(project.id);
@@ -2022,8 +2173,631 @@
         warningBox,
         h("div", { className: "button-row", style: { marginTop: "16px" } }, copyButton, downloadButton),
       );
-      page.appendChild(h("div", { className: "notice assistant-privacy" }, h("strong", { text: "外部通信なし" }), h("p", { text: "APIキーは使わず，Ollama／Qwenへの自動接続も行いません．未確認の数値・文献を作らない指示と，返答形式を含むプロンプトだけを生成します．" })));
+      page.appendChild(h("div", { className: "notice assistant-privacy" }, h("strong", { text: "AIサービスへの自動送信なし" }), h("p", { text: "APIキーは使わず，Ollama／Qwenへの自動接続も行いません．未確認の数値・文献を作らない指示と，返答形式を含むプロンプトだけを生成します．" })));
       page.appendChild(h("div", { className: "assistant-layout" }, controls, resultPanel));
+    }
+
+    async renderCloud() {
+      await this.refreshProjects();
+      const page = this.page("端末間同期", "端末保存を残したまま，選んだプロジェクトだけを安全に同期します．", true);
+      const config = root.PAPER_TOOLS_CLOUD || { enabled: false };
+
+      if (this.cloudError) {
+        const localFile = root.location && root.location.protocol === "file:";
+        page.append(
+          h(
+            "section",
+            { className: "notice notice--danger" },
+            h("strong", { text: localFile ? "ローカル版では同期を開始しません" : "クラウド設定を安全に読み込めません" }),
+            h("p", { text: this.cloudError }),
+            h("p", { text: "端末内の編集とバックアップは引き続き利用できます．Secret keyやservice_role keyを貼り付けていないか確認してください．" }),
+          ),
+          this.cloudSecurityNotice(),
+        );
+        return;
+      }
+
+      if (config.enabled !== true) {
+        page.append(
+          h(
+            "section",
+            { className: "panel settings-panel" },
+            h("div", { className: "card__meta" }, h("span", { className: "badge badge--accent", text: "任意機能" })),
+            h("h2", { text: "現在は端末内だけで保存しています" }),
+            h("p", { text: "この状態では原稿を外部へ送信しません．index.htmlをダブルクリックする使い方も，これまでどおり継続できます．" }),
+            h("div", { className: "notice", style: { marginTop: "18px" } }, h("strong", { text: "同期を使う場合だけ一度設定" }), h("p", { text: "管理者がSupabaseの本人限定RLSとGitHub Pagesを設定し，公開用キーをcloud-config.jsへ記入します．利用者のPython環境は不要です．" })),
+            h("div", { className: "button-row", style: { marginTop: "18px" } },
+              h("a", { className: "button-secondary", href: "./docs/cloud-sync-setup.html", target: "_blank", rel: "noopener noreferrer", text: "初期設定を読む" }),
+            ),
+          ),
+          this.cloudSecurityNotice(),
+        );
+        return;
+      }
+
+      if (!this.cloudStatus.ready || !this.cloud) {
+        const localFile = root.location && root.location.protocol === "file:";
+        page.append(
+          h(
+            "section",
+            { className: "notice notice--warning" },
+            h("strong", { text: localFile ? "ローカル版は端末内モードです" : "クラウド同期を開始できません" }),
+            h("p", { text: localFile ? "ログインはGitHub PagesなどのHTTPS版で利用してください．このindex.htmlでは端末内編集とZIPバックアップをそのまま使えます．" : "設定を確認してください．" }),
+          ),
+          this.cloudSecurityNotice(),
+        );
+        return;
+      }
+
+      if (!this.cloudSession.signedIn) {
+        this.renderCloudLogin(page);
+        page.appendChild(this.cloudSecurityNotice());
+        return;
+      }
+
+      await this.renderCloudWorkspace(page);
+    }
+
+    cloudSecurityNotice() {
+      return h(
+        "section",
+        { className: "notice notice--warning cloud-security-notice" },
+        h("strong", { text: "ログインはこの端末の原稿をロックしません" }),
+        h("p", { text: "ログアウト後もブラウザー内の端末コピーは残ります．共有PCでは使用しないか，バックアップ確認後に端末内プロジェクトを明示的に削除してください．" }),
+        h("p", { text: "ブラウザーの「サイトデータを削除」は，同じUSER.github.io上にある別のPagesアプリにも影響し得ます．専用ドメインでない場合は削除対象を先に確認してください．" }),
+        h("p", { text: "機密性の高い研究では，所属組織が承認した保存先と，このアプリ専用のWebオリジンを利用してください．" }),
+        h("p", { text: "初期版ではクラウドへ保存済みの添付を上書き・自動削除しません．端末側で添付を外してもStorage本体は残るため，機密データの削除は管理者へ依頼してください．" }),
+      );
+    }
+
+    renderCloudLogin(page) {
+      const email = h("input", {
+        id: "cloud-email",
+        className: "text-input",
+        type: "email",
+        inputMode: "email",
+        autocomplete: "email",
+        maxlength: 254,
+        value: this.pendingCloudEmail,
+        placeholder: "name@example.org",
+      });
+      const token = h("input", {
+        id: "cloud-otp",
+        className: "text-input",
+        type: "text",
+        inputMode: "numeric",
+        autocomplete: "one-time-code",
+        maxlength: 12,
+        placeholder: "メールに届いた確認コード",
+      });
+      const send = async () => {
+        if (this.cloudBusy) return;
+        this.cloudBusy = true;
+        try {
+          const result = await this.cloud.signInWithEmailOtp(email.value, { shouldCreateUser: false });
+          this.pendingCloudEmail = email.value.trim().toLowerCase();
+          if (result.session && result.session.signedIn) {
+            this.setCloudSession(result.session);
+          } else {
+            this.toast("確認コードを送信しました．メールを確認してください．");
+          }
+        } catch (error) {
+          this.toast(error.message, true);
+        } finally {
+          this.cloudBusy = false;
+          await this.renderRoute();
+        }
+      };
+      const verify = async () => {
+        if (this.cloudBusy) return;
+        this.cloudBusy = true;
+        try {
+          const result = await this.cloud.verifyEmailOtp(email.value || this.pendingCloudEmail, token.value, "email");
+          this.setCloudSession(result.session);
+          this.pendingCloudEmail = "";
+          this.toast("ログインしました．端末内の原稿はまだ送信されていません．");
+        } catch (error) {
+          this.toast(error.message, true);
+        } finally {
+          this.cloudBusy = false;
+          await this.renderRoute();
+        }
+      };
+      page.appendChild(
+        h(
+          "section",
+          { className: "panel settings-panel cloud-login-panel" },
+          h("div", { className: "card__meta" }, h("span", { className: "badge badge--accent", text: "招待制" }), h("span", { text: "パスワード保存なし" })),
+          h("h2", { text: "メールの確認コードでログイン" }),
+          h("p", { text: "管理者から招待されたメールアドレスを使用します．ログインしただけでは，端末内のプロジェクトをクラウドへ送りません．" }),
+          h("div", { className: "form-grid cloud-login-grid" },
+            field("メールアドレス", email, "新しい利用者は，先にSupabase管理者から招待を受けてください．"),
+            field("確認コード", token, "コードは他人へ伝えないでください．"),
+          ),
+          h("div", { className: "button-row", style: { marginTop: "18px" } },
+            button("確認コードを送る", "button-secondary", send),
+            button("コードを確認してログイン", "button", verify),
+          ),
+        ),
+      );
+    }
+
+    async renderCloudWorkspace(page) {
+      const identity = this.captureCloudIdentity();
+      const owner = this.cloudSession.user;
+      this.cloudFetchError = "";
+      try {
+        this.cloudProjects = await this.cloudCall(identity, () => this.cloud.listProjects());
+      } catch (error) {
+        this.cloudProjects = [];
+        if (error && error.code === "cloud-auth-changed") throw error;
+        this.cloudFetchError = error.message;
+      }
+      const metadata = await this.repo.listSyncMeta(owner.id);
+      this.assertCloudIdentity(identity);
+      const outbox = await this.repo.listSyncOutbox(owner.id);
+      this.assertCloudIdentity(identity);
+      const metaByLocalId = new Map(metadata.map((item) => [item.localProjectId, item]));
+      const remoteById = new Map(this.cloudProjects.map((item) => [item.id, item]));
+      const pairs = [];
+
+      for (const local of this.projects) {
+        const remote = remoteById.get(local.id) || null;
+        const meta = metaByLocalId.get(local.id) || null;
+        pairs.push(await this.cloudPairState(local, remote, meta));
+        if (remote) remoteById.delete(local.id);
+      }
+      for (const remote of remoteById.values()) {
+        pairs.push({ kind: "remote-only", local: null, remote, meta: null, localFingerprint: null });
+      }
+
+      const signOut = async () => {
+        if (this.cloudBusy) {
+          this.toast("同期処理が終わってからログアウトしてください．");
+          return;
+        }
+        this.cloudBusy = true;
+        this.cloudOperationHash = root.location.hash || "#cloud";
+        try {
+          const ok = await this.confirm(
+            "クラウドからログアウト",
+            "認証セッションだけを終了します．このブラウザー内の原稿は削除もロックもされません．共有端末では端末内プロジェクトを別途削除してください．ブラウザーのサイトデータ削除は，同じUSER.github.io上の別Pagesアプリにも影響し得ます．",
+            "ログアウト",
+            false,
+          );
+          if (!ok) return;
+          await this.cloud.signOut();
+          this.setCloudSession({ signedIn: false, user: null, expiresAt: null });
+          this.toast("ログアウトしました．端末内の原稿は残っています．");
+        } catch (error) {
+          this.toast(error.message, true);
+        } finally {
+          this.cloudBusy = false;
+          this.cloudOperationHash = "";
+          if (this.route().name === "cloud") await this.renderRoute();
+        }
+      };
+
+      page.append(
+        h(
+          "section",
+          { className: "panel settings-panel cloud-account-panel" },
+          h("div", { className: "cloud-account-row" },
+            h("div", {},
+              h("div", { className: "card__meta" }, h("span", { className: "badge badge--accent", text: "ログイン中" }), outbox.length ? h("span", { className: "badge badge--warning", text: `同期待ち ${outbox.length}件` }) : h("span", { className: "badge", text: "手動同期" })),
+              h("h2", { text: owner.email || "同期アカウント" }),
+              h("p", { text: "編集は先にこの端末へ保存されます．別端末へ反映するには，下の同期ボタンを押してください．" }),
+            ),
+            h("div", { className: "button-row" },
+              button("一覧を更新", "button-secondary", () => this.renderRoute()),
+              button("ログアウト", "button-quiet", signOut),
+            ),
+          ),
+        ),
+        h("section", { className: "notice notice--warning" },
+          h("strong", { text: "同期の前後にもZIPバックアップ" }),
+          h("p", { text: "クラウド同期はバックアップの代わりではありません．通信失敗や添付の未対応形式がある場合は途中で停止し，端末版を保持します．" }),
+        ),
+      );
+
+      if (this.cloudFetchError) {
+        page.appendChild(h("section", { className: "notice notice--danger" }, h("strong", { text: "クラウド一覧を更新できませんでした" }), h("p", { text: this.cloudFetchError }), h("p", { text: "端末内の編集は保存されています．接続回復後に再試行してください．" })));
+      }
+
+      const heading = h("div", { className: "section-heading" }, h("div", {}, h("h2", { text: "プロジェクトごとの状態" }), h("p", { text: "ログイン直後の自動アップロードは行いません．状態を確認して1件ずつ操作します．" })));
+      const grid = h("div", { className: "grid grid--two cloud-project-grid" });
+      pairs.forEach((pair) => grid.appendChild(this.cloudProjectCard(pair)));
+      page.append(heading, pairs.length ? grid : emptyState("プロジェクトはありません", "この端末で新しく作成するか，別端末からクラウドへ同期してください．", "新規作成", () => this.navigate("new")), this.cloudSecurityNotice());
+    }
+
+    async cloudPairState(local, remote, meta) {
+      const localFingerprint = await PT.fingerprintProjectForCloud(local);
+      if (!remote) {
+        return {
+          kind: meta && meta.revision ? "cloud-missing" : "local-only",
+          local,
+          remote: null,
+          meta,
+          localFingerprint,
+        };
+      }
+      if (!meta || meta.remoteProjectId !== remote.id || meta.cloudId !== remote.cloudId) {
+        const remoteFingerprint = await PT.fingerprintProjectForCloud(remote.project);
+        return {
+          kind: remoteFingerprint === localFingerprint ? "unlinked-same" : "unlinked-different",
+          local,
+          remote,
+          meta,
+          localFingerprint,
+        };
+      }
+      if (["error", "retry", "pending", "syncing", "queued", "offline"].includes(meta.status)) {
+        return { kind: "partial", local, remote, meta, localFingerprint };
+      }
+      if (meta.status === "conflict") {
+        return { kind: "conflict", local, remote, meta, localFingerprint };
+      }
+      const localChanged = !meta.fingerprint || meta.fingerprint !== localFingerprint;
+      const remoteChanged = meta.revision !== remote.revision;
+      return {
+        kind: localChanged && remoteChanged
+          ? "conflict"
+          : localChanged
+            ? "local-changed"
+            : remoteChanged
+              ? "remote-changed"
+              : "synced",
+        local,
+        remote,
+        meta,
+        localFingerprint,
+      };
+    }
+
+    cloudProjectCard(pair) {
+      const labels = {
+        "local-only": ["この端末のみ", "badge"],
+        "remote-only": ["クラウドのみ", "badge badge--accent"],
+        "unlinked-same": ["同じ内容・未接続", "badge badge--warning"],
+        "unlinked-different": ["同名の別内容", "badge badge--danger"],
+        "local-changed": ["端末側に変更", "badge badge--warning"],
+        "remote-changed": ["別端末に変更", "badge badge--warning"],
+        conflict: ["両方に変更", "badge badge--danger"],
+        partial: ["同期を再開できます", "badge badge--warning"],
+        "cloud-missing": ["クラウド側にありません", "badge badge--danger"],
+        synced: ["同期済み", "badge badge--accent"],
+      };
+      const [label, badgeClass] = labels[pair.kind] || ["要確認", "badge badge--warning"];
+      const project = pair.local || pair.remote.project;
+      const actions = h("div", { className: "card__actions" });
+      const run = (operation) => async () => {
+        if (this.cloudBusy) return;
+        this.cloudBusy = true;
+        this.cloudOperationHash = root.location.hash || "#cloud";
+        try {
+          await operation();
+        } catch (error) {
+          this.toast(error.message, true);
+        } finally {
+          this.cloudBusy = false;
+          this.cloudOperationHash = "";
+          if (this.route().name === "cloud") await this.renderRoute();
+        }
+      };
+
+      if (pair.kind === "local-only") {
+        actions.appendChild(button("クラウドへコピー", "button", run(() => this.pushProjectToCloud(pair.local, null, null))));
+      } else if (pair.kind === "remote-only") {
+        actions.appendChild(button("この端末へ取り込む", "button", run(() => this.pullProjectFromCloud(pair.remote, false))));
+      } else if (pair.kind === "unlinked-same") {
+        actions.appendChild(button("クラウド版を取得して接続", "button", run(() => this.pullProjectFromCloud(pair.remote, false))));
+      } else if (pair.kind === "unlinked-different" || pair.kind === "conflict") {
+        actions.appendChild(button("両方を残してクラウド版を反映", "button", run(() => this.pullProjectFromCloud(pair.remote, true))));
+      } else if (pair.kind === "local-changed" || pair.kind === "partial") {
+        actions.appendChild(button(pair.kind === "partial" ? "同期を再開" : "クラウドへ保存", "button", run(() => this.pushProjectToCloud(pair.local, pair.remote, pair.meta))));
+      } else if (pair.kind === "remote-changed") {
+        actions.appendChild(button("クラウド版をこの端末へ反映", "button", run(() => this.pullProjectFromCloud(pair.remote, false))));
+      } else if (pair.kind === "cloud-missing") {
+        actions.appendChild(button("新しいクラウドコピーとして作り直す", "button-secondary", run(() => this.recreateCloudProject(pair.local, pair.meta))));
+      } else {
+        actions.appendChild(button("原稿を開く", "button-secondary", () => this.navigate(`editor/${encodeURIComponent(project.id)}`)));
+      }
+      if (pair.local && pair.kind !== "synced") {
+        actions.appendChild(button("端末版を開く", "button-quiet", () => this.navigate(`editor/${encodeURIComponent(pair.local.id)}`)));
+      }
+
+      const metaText = [];
+      if (pair.local) metaText.push(`端末更新 ${PT.formatDate(pair.local.updatedAt, pair.local.language)}`);
+      if (pair.remote) metaText.push(`クラウド版 r${pair.remote.revision}`);
+      metaText.push(`添付 ${project.assets.length}件`);
+      return h(
+        "article",
+        { className: "card cloud-project-card" },
+        h("div", { className: "card__meta" }, h("span", { className: badgeClass, text: label }), ...metaText.map((text) => h("span", { text }))),
+        h("h3", { text: project.name || project.title || "無題のプロジェクト" }),
+        pair.meta && pair.meta.error ? h("p", { className: "cloud-error-text", text: pair.meta.error }) : null,
+        pair.kind === "conflict" || pair.kind === "unlinked-different"
+          ? h("p", { text: "自動上書きしません．端末版をコピーとして残してから，クラウド版を取り込みます．" })
+          : pair.kind === "partial"
+            ? h("p", { text: "本文または添付の一部だけが保存済みです．成功済みの添付を飛ばして再開します．" })
+            : null,
+        actions,
+      );
+    }
+
+    preflightCloudAssets(project) {
+      const allowed = new Set(["png", "jpg", "jpeg", "pdf", "csv", "json", "txt", "yaml", "yml"]);
+      project.assets.forEach((asset) => {
+        if (!/^asset_[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(asset.id || "")) {
+          throw new Error(`「${asset.displayName || asset.name}」は旧形式の添付IDです．削除して再添付してから同期してください．`);
+        }
+        const match = String(asset.name || "").toLowerCase().match(/\.([a-z0-9]{1,10})$/);
+        if (!match || !allowed.has(match[1])) {
+          throw new Error(`「${asset.displayName || asset.name}」はクラウド同期できない形式です．SVGはPNGへ変換してください．`);
+        }
+        if (!asset.data || !Number.isFinite(Number(asset.size)) || Number(asset.size) < 1) {
+          throw new Error(`「${asset.displayName || asset.name}」の本体がこの端末にありません．ZIPから復元するか，再添付してください．`);
+        }
+        const maximum = PT.CLOUD_LIMITS && PT.CLOUD_LIMITS.maxAttachmentBytes || 20 * 1024 * 1024;
+        if (Number(asset.size) > maximum) {
+          throw new Error(`「${asset.displayName || asset.name}」はクラウド同期の上限 ${Math.round(maximum / 1024 / 1024)} MB を超えています．`);
+        }
+      });
+    }
+
+    async projectOutboxItem(ownerId, projectId) {
+      const current = await this.repo.listSyncOutbox(ownerId);
+      const existing = current.find((item) => item.operation === "upsert-project" && item.localProjectId === projectId);
+      if (existing) return existing;
+      return this.repo.enqueueSyncOperation(ownerId, {
+        operation: "upsert-project",
+        localProjectId: projectId,
+        status: "queued",
+      });
+    }
+
+    async clearProjectOutbox(ownerId, projectId) {
+      const current = await this.repo.listSyncOutbox(ownerId);
+      for (const item of current) {
+        if (item.operation === "upsert-project" && item.localProjectId === projectId) {
+          await this.repo.deleteSyncOutboxItem(ownerId, item.id);
+        }
+      }
+    }
+
+    async uploadMissingCloudAssets(project, cloudId, alreadySynced, onProgress, identity) {
+      const synced = new Set((alreadySynced || []).filter((id) => project.assets.some((asset) => asset.id === id)));
+      for (const asset of project.assets) {
+        if (synced.has(asset.id)) continue;
+        await this.cloudCall(identity, () => this.cloud.uploadAttachment(cloudId, asset, { upsert: false }));
+        synced.add(asset.id);
+        if (onProgress) await onProgress(Array.from(synced));
+        this.assertCloudIdentity(identity);
+      }
+      return Array.from(synced);
+    }
+
+    async pushProjectToCloud(project, listedRemote, existingMeta) {
+      const identity = this.captureCloudIdentity();
+      if (!(await this.flushPendingSaves())) throw new Error("端末保存が完了していないため，同期を開始しませんでした．");
+      this.assertCloudIdentity(identity);
+      const ownerId = identity.ownerId;
+      const fresh = await this.repo.getProject(project.id);
+      this.assertCloudIdentity(identity);
+      if (!fresh) throw new Error("端末内のプロジェクトが見つかりません．");
+      this.preflightCloudAssets(fresh);
+      const fingerprint = await PT.fingerprintProjectForCloud(fresh);
+      this.assertCloudIdentity(identity);
+      const meta = existingMeta || await this.repo.getSyncMeta(ownerId, fresh.id);
+      this.assertCloudIdentity(identity);
+      const latest = await this.cloudCall(identity, () => this.cloud.getProject(fresh.id));
+      if (meta && meta.revision) {
+        if (!latest || latest.cloudId !== meta.cloudId || latest.revision !== meta.revision) {
+          await this.repo.saveSyncMeta(ownerId, fresh.id, { status: "conflict", error: "別端末の更新または削除を検出しました．上書きしていません．" });
+          throw new Error("クラウド版が別の端末で変更されています．両方を残して解決してください．");
+        }
+      } else if (latest || listedRemote) {
+        throw new Error("同じIDのクラウド版があります．自動上書きせず停止しました．");
+      }
+
+      await this.projectOutboxItem(ownerId, fresh.id);
+      this.assertCloudIdentity(identity);
+      let cloudId = meta && meta.cloudId;
+      let revision = meta && meta.revision || 0;
+      let syncedAssetIds = meta && meta.syncedAssetIds || [];
+      try {
+        this.assertCloudIdentity(identity);
+        await this.repo.saveSyncMeta(ownerId, fresh.id, {
+          remoteProjectId: fresh.id,
+          cloudId: cloudId || null,
+          revision,
+          fingerprint,
+          status: "syncing",
+          error: "",
+          syncedAssetIds,
+        });
+
+        if (!latest) {
+          const initial = PT.deepClone(fresh);
+          if (fresh.assets.length) initial.assets = [];
+          const created = await this.cloudCall(
+            identity,
+            () => this.cloud.saveProject(initial, { expectedRevision: 0 }),
+          );
+          cloudId = created.cloudId;
+          revision = created.revision;
+          this.assertCloudIdentity(identity);
+          await this.repo.saveSyncMeta(ownerId, fresh.id, {
+            remoteProjectId: fresh.id,
+            cloudId,
+            revision,
+            fingerprint,
+            status: fresh.assets.length ? "pending" : "synced",
+            error: "",
+            syncedAssetIds: [],
+          });
+        }
+
+        syncedAssetIds = await this.uploadMissingCloudAssets(
+          fresh,
+          cloudId,
+          syncedAssetIds,
+          async (completed) => {
+            syncedAssetIds = completed;
+            await this.repo.saveSyncMeta(ownerId, fresh.id, {
+              remoteProjectId: fresh.id,
+              cloudId,
+              revision,
+              fingerprint,
+              status: "pending",
+              error: "",
+              syncedAssetIds: completed,
+            });
+          },
+          identity,
+        );
+
+        if (fresh.assets.length || latest) {
+          const saved = await this.cloudCall(
+            identity,
+            () => this.cloud.saveProject(fresh, { expectedRevision: revision }),
+          );
+          cloudId = saved.cloudId;
+          revision = saved.revision;
+        }
+        this.assertCloudIdentity(identity);
+        await this.repo.saveSyncMeta(ownerId, fresh.id, {
+          remoteProjectId: fresh.id,
+          cloudId,
+          revision,
+          fingerprint,
+          lastSyncedAt: PT.nowIso(),
+          status: "synced",
+          error: "",
+          syncedAssetIds,
+        });
+        await this.clearProjectOutbox(ownerId, fresh.id);
+        this.assertCloudIdentity(identity);
+        this.toast("クラウドへの同期が完了しました．");
+      } catch (error) {
+        const conflict = error && error.code === "revision-conflict";
+        await this.repo.saveSyncMeta(ownerId, fresh.id, {
+          remoteProjectId: fresh.id,
+          cloudId: cloudId || null,
+          revision,
+          fingerprint,
+          status: conflict ? "conflict" : "error",
+          error: error.message || "同期が途中で停止しました．",
+          syncedAssetIds,
+        });
+        throw error;
+      }
+    }
+
+    async hydrateRemoteProject(remote, identity) {
+      const project = PT.normalizeProject(remote.project);
+      const hydrated = [];
+      for (const asset of project.assets) {
+        const downloaded = await this.cloudCall(
+          identity,
+          () => this.cloud.downloadAttachment(remote.cloudId, asset),
+        );
+        if (Number(asset.size) > 0 && Number(asset.size) !== Number(downloaded.size)) {
+          throw new Error(`「${asset.displayName || asset.name}」のサイズがクラウド情報と一致しません．端末版は置き換えていません．`);
+        }
+        hydrated.push(Object.assign({}, asset, { data: downloaded.data, size: downloaded.size }));
+      }
+      project.assets = hydrated;
+      return project;
+    }
+
+    async pullProjectFromCloud(remote, preserveLocalCopy) {
+      const identity = this.captureCloudIdentity();
+      const latest = await this.cloudCall(identity, () => this.cloud.getProject(remote.id));
+      if (!latest) throw new Error("クラウド上のプロジェクトが見つかりません．");
+      remote = latest;
+      let local = await this.repo.getProject(remote.id);
+      const message = preserveLocalCopy
+        ? "現在の端末版を別プロジェクトとして複製してから，元のIDへクラウド版を取り込みます．全添付の取得に成功するまで元の端末版は置き換えません．"
+        : local
+          ? "クラウド版と全添付の取得に成功してから，この端末の同じプロジェクトを置き換えます．"
+          : "クラウド版と全添付をこの端末へ取り込みます．";
+      const ok = await this.confirm("クラウド版を取り込む", message, preserveLocalCopy ? "両方を残して取り込む" : "取り込む", false);
+      if (!ok) return;
+      this.assertCloudIdentity(identity);
+      if (!(await this.flushPendingSaves())) throw new Error("端末保存が完了していないため，取り込みを開始しませんでした．");
+      this.assertCloudIdentity(identity);
+      local = await this.repo.getProject(remote.id);
+      this.assertCloudIdentity(identity);
+      const baselineUpdatedAt = local ? local.updatedAt : null;
+      const baselineFingerprint = local ? await PT.fingerprintProjectForCloud(local) : null;
+      this.assertCloudIdentity(identity);
+
+      // Download and validate every attachment before changing any local record.
+      const hydrated = await this.hydrateRemoteProject(remote, identity);
+      if (!(await this.flushPendingSaves())) throw new Error("端末保存が完了していないため，クラウド版を反映しませんでした．");
+      this.assertCloudIdentity(identity);
+      const currentLocal = await this.repo.getProject(remote.id);
+      this.assertCloudIdentity(identity);
+      const currentFingerprint = currentLocal ? await PT.fingerprintProjectForCloud(currentLocal) : null;
+      this.assertCloudIdentity(identity);
+      if (
+        (currentLocal ? currentLocal.updatedAt : null) !== baselineUpdatedAt
+        || currentFingerprint !== baselineFingerprint
+      ) {
+        throw new Error("取得中に端末版が変更されたため，クラウド版で上書きしませんでした．最新状態を確認してもう一度実行してください．");
+      }
+      let duplicate = null;
+      if (preserveLocalCopy && currentLocal) duplicate = await this.repo.duplicateProject(currentLocal.id);
+      this.assertCloudIdentity(identity);
+      const previous = this.currentProject && this.currentProject.id === remote.id ? this.currentProject : null;
+      let saved;
+      try {
+        saved = await this.repo.replaceProjectIfUnchanged(hydrated, baselineUpdatedAt);
+        this.assertCloudIdentity(identity);
+      } catch (error) {
+        if (error && error.code === "local-project-changed" && duplicate) {
+          throw new Error(`取得中に端末版が変更されたため，クラウド版で上書きしませんでした．作成済みの「${duplicate.name}」も端末内に保持しています．`);
+        }
+        throw error;
+      }
+      if (previous) {
+        this.staleProjectObjects.add(previous);
+        this.currentProject = saved;
+      }
+      const fingerprint = await PT.fingerprintProjectForCloud(saved);
+      this.assertCloudIdentity(identity);
+      await this.repo.saveSyncMeta(identity.ownerId, saved.id, {
+        remoteProjectId: remote.id,
+        cloudId: remote.cloudId,
+        revision: remote.revision,
+        fingerprint,
+        lastSyncedAt: PT.nowIso(),
+        status: "synced",
+        error: "",
+        syncedAssetIds: saved.assets.map((asset) => asset.id),
+      });
+      this.assertCloudIdentity(identity);
+      await this.clearProjectOutbox(identity.ownerId, saved.id);
+      this.assertCloudIdentity(identity);
+      await this.refreshProjects();
+      this.assertCloudIdentity(identity);
+      this.toast(duplicate ? `端末版を「${duplicate.name}」として残し，クラウド版を取り込みました．` : "クラウド版をこの端末へ取り込みました．");
+    }
+
+    async recreateCloudProject(project, meta) {
+      const identity = this.captureCloudIdentity();
+      const ok = await this.confirm(
+        "クラウドコピーを作り直す",
+        "クラウド側に同じプロジェクトがないことを確認し，端末版を新規保存します．削除済みデータを自動復活させず，この確認後だけ実行します．",
+        "新しく作る",
+        false,
+      );
+      if (!ok) return;
+      this.assertCloudIdentity(identity);
+      if (meta) await this.repo.deleteSyncMeta(identity.ownerId, project.id);
+      this.assertCloudIdentity(identity);
+      await this.pushProjectToCloud(project, null, null);
     }
 
     renderSettings() {
@@ -2039,7 +2813,8 @@
       };
       stack.append(
         h("section", { className: "panel settings-panel" }, h("h2", { text: "文章と保存" }), h("p", { text: "設定はこのブラウザにのみ保存されます．新しく作るプロジェクトの既定値になります．" }), h("div", { className: "form-grid" }, field("日本語の句読点", punctuation), field("英語表記", englishVariant), field("1ファイルの上限（MB）", uploadLimit), field("履歴の保持件数", historyLimit)), h("div", { className: "button-row", style: { marginTop: "20px" } }, button("設定を保存", "button", save))),
-        h("section", { className: "panel settings-panel" }, h("h2", { text: "AI支援の境界" }), h("p", { text: "APIキーは保存せず，OpenAI互換APIやOllamaへ自動接続しません．英文変換，模擬査読，内容補強，校正，文献調査は，AI作業台でプロンプトとして作成します．" }), h("div", { className: "notice", style: { marginTop: "16px" } }, h("strong", { text: "利用者が確認してコピー" }), h("p", { text: "研究データを自動送信する処理はありません．Codex，Claude Code，Ollama，Qwenなどへ貼り付ける前に内容を確認してください．" })), h("div", { className: "button-row", style: { marginTop: "16px" } }, button("AI作業台を開く", "button-secondary", () => this.navigate("assistant")))),
+        h("section", { className: "panel settings-panel" }, h("h2", { text: "AI支援の境界" }), h("p", { text: "APIキーは保存せず，OpenAI互換APIやOllamaへ自動接続しません．英文変換，模擬査読，内容補強，校正，文献調査は，AI作業台でプロンプトとして作成します．" }), h("div", { className: "notice", style: { marginTop: "16px" } }, h("strong", { text: "利用者が確認してコピー" }), h("p", { text: "研究データをAIサービスへ自動送信しません．Codex，Claude Code，Ollama，Qwenなどへ貼り付ける前に内容を確認してください．" })), h("div", { className: "button-row", style: { marginTop: "16px" } }, button("AI作業台を開く", "button-secondary", () => this.navigate("assistant")))),
+        h("section", { className: "panel settings-panel" }, h("h2", { text: "端末間同期（任意）" }), h("p", { text: this.cloudSession.signedIn ? `ログイン中：${this.cloudSession.user.email || "同期アカウント"}．同期はプロジェクトごとの明示操作です．` : "既定は端末内保存です．設定済みのHTTPS版では，招待制OTPログインと手動同期を利用できます．" }), h("div", { className: "button-row", style: { marginTop: "16px" } }, button("端末間同期を開く", "button-secondary", () => this.navigate("cloud")))),
         h("section", { className: "panel settings-panel" }, h("h2", { text: "保存領域" }), h("p", { text: `現在：${this.repo.mode === "indexeddb" ? "IndexedDB（推奨）" : this.repo.mode === "localstorage" ? "localStorage（簡易）" : "メモリ（一時）"}` }), h("div", { className: "notice notice--warning", style: { marginTop: "16px" } }, h("p", { text: "ブラウザデータの消去や，file:// からGitHub Pagesへの移動では保存領域が変わります．添付を含む場合はZIP，本文だけならJSONを定期的に保存してください．" }))),
       );
       page.appendChild(stack);
@@ -2051,7 +2826,7 @@
       this.dialogBody.replaceChildren(
         h("ol", {}, h("li", { text: "「テンプレート」で組込み構成を選ぶか，手元のテンプレートファイルを登録します．" }), h("li", { text: "「新規作成」で確認済みの目的・方法・結果だけを入力します．" }), h("li", { text: "生成された草稿のTODOと，右側の「助言」にある図・データ不足を確認します．" }), h("li", { text: "英文変換や模擬査読は「AI作業台」で指示文を作り，内容を確認して使用先へ貼り付けます．" }), h("li", { text: "編集後，ZIPバックアップと印刷PDFを保存します．" })),
         h("p", { text: "本文で参考文献を引用するときは，登録した引用キーの前に @ を付けます（例：@smith2026）．印刷PDFでは文献番号へ変換されます．" }),
-        h("div", { className: "notice", style: { marginTop: "16px" } }, h("p", { text: "index.htmlはそのままダブルクリックで起動できます．Python，サーバー，APIキーは不要です．AI作業台も自動送信は行わず，プロンプトだけを生成します．" })),
+        h("div", { className: "notice", style: { marginTop: "16px" } }, h("p", { text: "index.htmlはそのままダブルクリックで起動できます．Pythonやサーバーは不要です．任意の端末間同期はHTTPS版で明示的に設定し，AI作業台は同期設定の有無にかかわらずプロンプトだけを生成します．" })),
       );
       this.dialogActions.replaceChildren(button("閉じる", "button", () => this.dialog.close("cancel")));
       this.dialog.showModal();

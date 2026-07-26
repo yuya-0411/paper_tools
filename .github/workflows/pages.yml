@@ -11,47 +11,78 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: pages
   cancel-in-progress: true
 
 jobs:
+  quality:
+    name: Security and browser logic
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Verify deterministic logic and cloud boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          node tests/node-tests.cjs
+          node tests/custom-template-tests.cjs
+          node tests/evidence-audit-tests.cjs
+          node tests/ai-prompt-tests.cjs
+          node tests/storage-sync-tests.cjs
+          node tests/cloud-sync-tests.cjs
+          node tests/schema-security-tests.cjs
+          node tests/deployment-security-tests.cjs
+          for file in scripts/*.js; do node --check "$file"; done
+
+      - name: Verify vendored Supabase SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "4ef7bc3be0ba3c1cec20c2bf2110b01db8bc7f21335c8948b3a39f541647b9ba65c1885a405ff8333c6a820fa9a7fa32  scripts/vendor/supabase-2.110.8.min.js" | sha384sum --check -
+
+      - name: Verify file URL startup
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --experimental-websocket tests/browser-smoke.cjs
+
   deploy:
     name: Deploy Pages
+    needs: quality
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       - name: Configure Pages
-        uses: actions/configure-pages@v6
-
-      - name: Verify browser logic
-        shell: bash
-        run: |
-          node tests/node-tests.cjs
-          node tests/custom-template-tests.cjs
-          node tests/evidence-audit-tests.cjs
-          node tests/ai-prompt-tests.cjs
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
 
       - name: Prepare public files
         shell: bash
         run: |
+          set -euo pipefail
           mkdir _site
           cp index.html _site/
-          cp -R assets scripts _site/
+          cp -R assets scripts docs supabase _site/
 
       - name: Upload static files
-        uses: actions/upload-pages-artifact@v5
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: _site
 
       - name: Deploy to Pages
         id: deployment
-        uses: actions/deploy-pages@v5
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0

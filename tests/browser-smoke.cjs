@@ -198,6 +198,7 @@ async function waitForApplication(session) {
     try {
       const evaluation = await session.command("Runtime.evaluate", {
         expression,
+        awaitPromise: true,
         returnByValue: true,
       });
       lastState = evaluation.result?.value || null;
@@ -237,6 +238,7 @@ async function waitForRoute(session, hash, marker) {
     try {
       const evaluation = await session.command("Runtime.evaluate", {
         expression,
+        awaitPromise: true,
         returnByValue: true,
       });
       lastState = evaluation.result?.value || null;
@@ -261,6 +263,7 @@ async function waitForEvaluation(session, expression, isReady, description) {
     try {
       const evaluation = await session.command("Runtime.evaluate", {
         expression,
+        awaitPromise: true,
         returnByValue: true,
       });
       lastState = evaluation.result?.value || null;
@@ -295,6 +298,9 @@ async function main() {
   const browserExecutable = browserArgument();
   const indexPath = path.resolve(__dirname, "..", "index.html");
   const appUrl = `${pathToFileURL(indexPath).href}#home`;
+  const setupUrl = pathToFileURL(
+    path.resolve(__dirname, "..", "docs", "cloud-sync-setup.html"),
+  ).href;
   const profileDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "paper-tools-browser-smoke-"));
   const browserState = { launchError: null, exited: null };
   let stderr = "";
@@ -337,6 +343,7 @@ async function main() {
     await session.open();
     const state = await waitForApplication(session);
     const routes = [];
+    routes.push(await waitForRoute(session, "#cloud", "現在は端末内だけで保存しています"));
     routes.push(await waitForRoute(session, "#templates", "テンプレートを自動登録"));
     await session.command("Runtime.evaluate", {
       expression: `(() => {
@@ -393,6 +400,159 @@ async function main() {
     });
     const projectIds = projectEvaluation.result?.value;
     if (!projectIds?.primaryId || !projectIds?.secondaryId) throw new Error("ブラウザースモーク用プロジェクトを作成できませんでした．");
+
+    await session.command("Runtime.evaluate", {
+      expression: `(() => {
+        const app = window.paperToolsApp;
+        const owner = {
+          id: "11111111-1111-4111-8111-111111111111",
+          email: "smoke@example.org",
+        };
+        const remotes = new Map();
+        const copy = (value) => structuredClone(value);
+        window.PAPER_TOOLS_CLOUD = { enabled: true };
+        app.cloudError = "";
+        app.cloudStatus = { enabled: true, ready: true };
+        app.setCloudSession({ signedIn: true, user: owner, expiresAt: null });
+        app.cloudProjects = [];
+        app.cloud = {
+          async listProjects() {
+            return Array.from(remotes.values()).map(copy);
+          },
+          async getProject(id) {
+            const row = remotes.get(id);
+            return row ? copy(row) : null;
+          },
+          async saveProject(project, options) {
+            const safe = PaperTools.sanitizeProjectForCloud(project);
+            const expected = options?.expectedRevision ?? 0;
+            const prior = remotes.get(safe.id);
+            if ((!prior && expected !== 0) || (prior && expected !== prior.revision)) {
+              const error = new Error("revision conflict");
+              error.code = "revision-conflict";
+              throw error;
+            }
+            const now = new Date().toISOString();
+            const row = {
+              id: safe.id,
+              cloudId: prior?.cloudId || "22222222-2222-4222-8222-222222222222",
+              revision: prior ? prior.revision + 1 : 1,
+              project: safe,
+              createdAt: prior?.createdAt || now,
+              updatedAt: now,
+            };
+            remotes.set(safe.id, row);
+            return copy(row);
+          },
+          async uploadAttachment() {
+            throw new Error("添付なしのUIスモークでuploadが呼ばれました");
+          },
+          async downloadAttachment() {
+            throw new Error("添付なしのUIスモークでdownloadが呼ばれました");
+          },
+          async signOut() {
+            return { signedIn: false, user: null, expiresAt: null };
+          },
+        };
+        app.updatePrivacyMode();
+        window.__paperToolsCloudSmoke = { owner, remotes };
+        location.hash = "#cloud";
+        return true;
+      })()`,
+      returnByValue: true,
+    });
+    routes.push(await waitForRoute(session, "#cloud", "クラウドへコピー"));
+    await session.command("Runtime.evaluate", {
+      expression: `(() => {
+        const trigger = Array.from(document.querySelectorAll("button"))
+          .find((item) => item.textContent.trim() === "クラウドへコピー");
+        if (!trigger) return false;
+        trigger.click();
+        return true;
+      })()`,
+      returnByValue: true,
+    });
+    const cloudUi = await waitForEvaluation(
+      session,
+      `(async () => {
+        const smoke = window.__paperToolsCloudSmoke;
+        const metadata = await window.paperToolsApp.repo.listSyncMeta(smoke.owner.id);
+        return {
+          synced: (document.body?.innerText || "").includes("同期済み"),
+          remoteCount: smoke.remotes.size,
+          metaCount: metadata.length,
+          pendingCount: (await window.paperToolsApp.repo.listSyncOutbox(smoke.owner.id)).length,
+        };
+      })()`,
+      (value) => Boolean(value && value.synced && value.remoteCount === 1 && value.metaCount === 1 && value.pendingCount === 0),
+      "クラウド同期UIの新規保存とsidecar更新を確認できませんでした",
+    );
+    await session.command("Runtime.evaluate", {
+      expression: `(async () => {
+        const app = window.paperToolsApp;
+        const smoke = window.__paperToolsCloudSmoke;
+        const [remote] = smoke.remotes.values();
+        const local = await app.repo.getProject(remote.id);
+        local.research.notes = "端末側の競合変更";
+        await app.repo.saveProject(local);
+        remote.project.research.notes = "クラウド側の競合変更";
+        remote.revision += 1;
+        remote.updatedAt = new Date().toISOString();
+        await app.renderRoute();
+        return true;
+      })()`,
+      awaitPromise: true,
+      returnByValue: true,
+    });
+    const cloudConflict = await waitForEvaluation(
+      session,
+      `(() => ({
+        conflictShown: (document.body?.innerText || "").includes("両方に変更"),
+        fatal: (document.body?.innerText || "").includes("画面を表示できませんでした"),
+      }))()`,
+      (value) => Boolean(value && value.conflictShown && !value.fatal),
+      "クラウド同期UIの競合停止を確認できませんでした",
+    );
+    const cloudIdentityEvaluation = await session.command("Runtime.evaluate", {
+      expression: `(() => {
+        const app = window.paperToolsApp;
+        const smoke = window.__paperToolsCloudSmoke;
+        const identity = app.captureCloudIdentity();
+        const initialEpoch = app.cloudAuthEpoch;
+        app.cloudProjects = [{ id: "must-be-cleared" }];
+        app.setCloudSession({
+          signedIn: true,
+          user: {
+            id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            email: "other@example.org",
+          },
+          expiresAt: null,
+        });
+        let rejected = false;
+        try {
+          app.assertCloudIdentity(identity);
+        } catch (error) {
+          rejected = error?.code === "cloud-auth-changed";
+        }
+        const result = {
+          cacheCleared: app.cloudProjects.length === 0,
+          epochAdvanced: app.cloudAuthEpoch > initialEpoch,
+          staleIdentityRejected: rejected,
+        };
+        app.setCloudSession({ signedIn: true, user: smoke.owner, expiresAt: null });
+        return result;
+      })()`,
+      returnByValue: true,
+    });
+    const cloudIdentity = cloudIdentityEvaluation.result?.value;
+    if (
+      !cloudIdentity?.cacheCleared
+      || !cloudIdentity?.epochAdvanced
+      || !cloudIdentity?.staleIdentityRejected
+    ) {
+      throw new Error(`クラウド認証owner境界を確認できませんでした: ${JSON.stringify(cloudIdentity)}`);
+    }
+
     routes.push(await waitForRoute(session, `#assistant/${encodeURIComponent(projectIds.primaryId)}`, "1．用途と対象を選ぶ"));
     await session.command("Runtime.evaluate", {
       expression: `(() => {
@@ -441,8 +601,25 @@ async function main() {
       (value) => Boolean(value && value.selectedProject === projectIds.secondaryId && value.promptChars === 0),
       "AI作業台のプロジェクト変更を確認できませんでした",
     );
+    await session.command("Page.navigate", { url: setupUrl });
+    const setupPage = await waitForEvaluation(
+      session,
+      `(() => ({
+        title: document.title,
+        hasQuickSteps: (document.body?.innerText || "").includes("管理者が最初に一度だけ設定します"),
+        hasSecretWarning: (document.body?.innerText || "").includes("Secret key"),
+        readyState: document.readyState,
+      }))()`,
+      (value) => Boolean(
+        value
+        && value.readyState === "complete"
+        && value.hasQuickSteps
+        && value.hasSecretWarning
+      ),
+      "クラウド同期のHTML初期設定ページを表示できませんでした",
+    );
     process.stdout.write(
-      `Browser smoke test passed (${path.basename(browserExecutable)}): ${JSON.stringify({ home: state, routes, templateRegistration, prompt, projectSwitch })}\n`,
+      `Browser smoke test passed (${path.basename(browserExecutable)}): ${JSON.stringify({ home: state, routes, templateRegistration, cloudUi, cloudConflict, cloudIdentity, prompt, projectSwitch, setupPage })}\n`,
     );
   } catch (error) {
     if (stderr.trim()) {

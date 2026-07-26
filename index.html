@@ -7,6 +7,11 @@
       name="description"
       content="環境構築なしで使える，ローカルファーストの学術論文作成支援Webアプリケーション"
     />
+    <meta name="referrer" content="no-referrer" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://*.supabase.co; object-src 'none'; frame-src 'none'; worker-src 'none'; base-uri 'none'; form-action 'self'"
+    />
     <meta name="color-scheme" content="light" />
     <title>paper_tools — 論文作成ワークスペース</title>
     <link rel="stylesheet" href="./assets/app.css" />
@@ -41,6 +46,7 @@
           <nav class="main-nav">
             <a href="#home" data-nav="home"><span aria-hidden="true">⌂</span>ホーム</a>
             <a href="#projects" data-nav="projects"><span aria-hidden="true">□</span>プロジェクト</a>
+            <a href="#cloud" data-nav="cloud"><span aria-hidden="true">↻</span>端末間同期</a>
             <a href="#new" data-nav="new"><span aria-hidden="true">＋</span>新規作成</a>
             <a href="#templates" data-nav="templates"><span aria-hidden="true">▤</span>テンプレート</a>
             <a href="#assistant" data-nav="assistant"><span aria-hidden="true">✦</span>AI作業台</a>
@@ -50,8 +56,8 @@
             <button class="sidebar-link" id="open-guide" type="button"><span aria-hidden="true">?</span>使い方</button>
           </div>
           <section class="privacy-note" aria-label="データの取扱い">
-            <strong>端末内で処理</strong>
-            <p>入力内容を外部へ送信しません．こまめにZIPバックアップを保存してください．</p>
+            <strong id="privacy-mode-title">端末内モード</strong>
+            <p id="privacy-mode-detail">同期を有効にするまで，入力内容を外部へ送信しません．</p>
           </section>
         </aside>
 
@@ -107,6 +113,9 @@
     <script defer src="./scripts/zip.js"></script>
     <script defer src="./scripts/export.js"></script>
     <script defer src="./scripts/ai-prompts.js"></script>
+    <script defer src="./scripts/cloud-config.js"></script>
+    <script defer src="./scripts/vendor/supabase-2.110.8.min.js"></script>
+    <script defer src="./scripts/cloud-sync.js"></script>
     <script defer src="./scripts/ui.js"></script>
   </body>
 </html>
