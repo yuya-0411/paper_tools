@@ -132,6 +132,10 @@ grant select on table public.projects to authenticated;
 --
 -- expected_revision = 0 creates a project at revision 1.
 -- expected_revision >= 1 updates only that exact revision.
+-- A missing payload.schemaVersion is treated as legacy project schema 1.
+-- An update may keep or raise that version, but may never lower it. This
+-- prevents an older published client from erasing fields introduced by a
+-- newer client even when its revision token is otherwise current.
 -- A conflict never overwrites the newer row and returns no manuscript payload.
 create or replace function public.save_project(
   p_project_id text,
@@ -154,6 +158,7 @@ declare
   v_cloud_id uuid;
   v_revision bigint;
   v_updated_at timestamptz;
+  v_new_schema_version bigint;
 begin
   if v_owner_id is null then
     raise exception 'Authentication is required'
@@ -183,6 +188,25 @@ begin
       using errcode = '22001';
   end if;
 
+  -- Projects created before schemaVersion was introduced are schema 1.
+  -- Reject malformed explicit values before any write. The bounded decimal
+  -- representation also makes the bigint cast below safe and deterministic.
+  if pg_catalog.jsonb_extract_path(new_payload, 'schemaVersion') is null then
+    v_new_schema_version := 1;
+  elsif pg_catalog.jsonb_typeof(
+          pg_catalog.jsonb_extract_path(new_payload, 'schemaVersion')
+        ) <> 'number'
+        or pg_catalog.jsonb_extract_path_text(new_payload, 'schemaVersion')
+          !~ '^[1-9][0-9]{0,8}$' then
+    raise exception 'Project schemaVersion must be a positive integer'
+      using errcode = '22023';
+  else
+    v_new_schema_version := pg_catalog.jsonb_extract_path_text(
+      new_payload,
+      'schemaVersion'
+    )::bigint;
+  end if;
+
   if expected_revision is null
      or expected_revision < 0
      or expected_revision = 9223372036854775807 then
@@ -203,6 +227,23 @@ begin
      where p.owner_id = v_owner_id
        and p.project_id = p_project_id
        and p.revision = expected_revision
+       and case
+         when pg_catalog.jsonb_extract_path(
+                p.payload,
+                'schemaVersion'
+              ) is null then true
+         when pg_catalog.jsonb_typeof(
+                pg_catalog.jsonb_extract_path(p.payload, 'schemaVersion')
+              ) = 'number'
+              and pg_catalog.jsonb_extract_path_text(
+                p.payload,
+                'schemaVersion'
+              ) ~ '^[1-9][0-9]{0,8}$' then
+           v_new_schema_version >= (
+             pg_catalog.jsonb_extract_path_text(p.payload, 'schemaVersion')
+           )::bigint
+         else false
+       end
     returning p.cloud_id, p.revision, p.updated_at
       into v_cloud_id, v_revision, v_updated_at;
   end if;

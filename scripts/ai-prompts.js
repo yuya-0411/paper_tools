@@ -8,16 +8,31 @@
   if (typeof module === "object" && module.exports) {
     module.exports = api;
   }
-})(typeof globalThis !== "undefined" ? globalThis : this, function () {
+})(typeof globalThis !== "undefined" ? globalThis : this, function (namespace) {
   "use strict";
+
+  var CENTRAL_RESEARCH_QUESTION_MAX_CHARS =
+    Number(namespace.CENTRAL_RESEARCH_QUESTION_MAX_CHARS) || 5000;
 
   var AI_PROMPT_TYPES = Object.freeze({
     TRANSLATE_ENGLISH: "translate-english",
     PEER_REVIEW: "peer-review",
     STRENGTHEN_CONTENT: "strengthen-content",
+    DEEPEN_CHAPTER: "deepen-chapter",
     PROOFREAD: "proofread",
     LITERATURE_RESEARCH: "literature-research",
   });
+
+  var CHAPTER_CONTRACT_FIELDS = Object.freeze([
+    "problem",
+    "priorGap",
+    "proposal",
+    "hypothesis",
+    "supportingEvidence",
+    "supportedConclusion",
+    "limitations",
+    "thesisContribution",
+  ]);
 
   var AI_PROMPT_LIMITS = Object.freeze({
     maxPromptChars: 180000,
@@ -41,6 +56,10 @@
     "strengthen-content": AI_PROMPT_TYPES.STRENGTHEN_CONTENT,
     strengthen: AI_PROMPT_TYPES.STRENGTHEN_CONTENT,
     expansion: AI_PROMPT_TYPES.STRENGTHEN_CONTENT,
+    "deepen-chapter": AI_PROMPT_TYPES.DEEPEN_CHAPTER,
+    "chapter-deepening": AI_PROMPT_TYPES.DEEPEN_CHAPTER,
+    "chapter-development": AI_PROMPT_TYPES.DEEPEN_CHAPTER,
+    "expand-chapter": AI_PROMPT_TYPES.DEEPEN_CHAPTER,
     proofread: AI_PROMPT_TYPES.PROOFREAD,
     proofreading: AI_PROMPT_TYPES.PROOFREAD,
     correction: AI_PROMPT_TYPES.PROOFREAD,
@@ -53,6 +72,7 @@
     "translate-english": "日本語原稿から英語への変換",
     "peer-review": "模擬査読",
     "strengthen-content": "内容補強",
+    "deepen-chapter": "章の深掘り・肉付け",
     proofread: "誤字・表現修正",
     "literature-research": "文献調査支援",
   });
@@ -100,10 +120,12 @@
       diagnostics: "diagnostics",
       metadata: "metadata",
     };
+    var normalizedType = TYPE_ALIASES[requestedType] || AI_PROMPT_TYPES.PEER_REVIEW;
     requestedScope = scopeAliases[requestedScope] || requestedScope;
     if (["all", "section", "selected-text", "diagnostics", "metadata"].indexOf(requestedScope) === -1) {
       requestedScope = "all";
     }
+    if (normalizedType === AI_PROMPT_TYPES.DEEPEN_CHAPTER) requestedScope = "section";
 
     var strictness = cleanText(source.strictness || "standard").trim().toLowerCase();
     if (["light", "standard", "strict"].indexOf(strictness) === -1) strictness = "standard";
@@ -119,7 +141,7 @@
     if (["generic", "codex", "claude-code", "ollama", "qwen"].indexOf(runner) === -1) runner = "generic";
 
     return {
-      type: TYPE_ALIASES[requestedType] || AI_PROMPT_TYPES.PEER_REVIEW,
+      type: normalizedType,
       scope: requestedScope,
       sectionId: cleanKey(scopeSource.sectionId || source.sectionId),
       selectedText: cleanText(scopeSource.text || source.selectedText),
@@ -207,6 +229,47 @@
     };
   }
 
+  function chapterContractRecord(section, index, budget) {
+    var contract = isObject(section && section.chapterContract)
+      ? section.chapterContract
+      : {};
+    var record = {};
+    CHAPTER_CONTRACT_FIELDS.forEach(function (key) {
+      record[key] = takeText(
+        contract[key],
+        "section[" + index + "].chapterContract." + key,
+        budget,
+        10000,
+      );
+    });
+    return record;
+  }
+
+  function requestedChapter(project, options) {
+    var source = isObject(project) ? project : {};
+    var manuscript = isObject(source.manuscript) ? source.manuscript : {};
+    var sections = asArray(manuscript.sections);
+    return sections.find(function (section) {
+      return cleanKey(section && section.id) === options.sectionId;
+    }) || null;
+  }
+
+  function requireDeepenChapter(project, options) {
+    if (options.type !== AI_PROMPT_TYPES.DEEPEN_CHAPTER) return null;
+    if (!options.sectionId) {
+      var missingId = new Error("深掘りする対象章が指定されていません。章を選び直してください。");
+      missingId.code = "chapter-not-found";
+      throw missingId;
+    }
+    var chapter = requestedChapter(project, options);
+    if (!chapter) {
+      var missingChapter = new Error("深掘りする対象章が見つかりません。章を選び直してください。");
+      missingChapter.code = "chapter-not-found";
+      throw missingChapter;
+    }
+    return chapter;
+  }
+
   function sourceSections(project, options) {
     var manuscript = isObject(project.manuscript) ? project.manuscript : {};
     var sections = asArray(manuscript.sections);
@@ -219,6 +282,10 @@
       }];
     }
     if (options.scope === "section") {
+      if (options.type === AI_PROMPT_TYPES.DEEPEN_CHAPTER) {
+        var requested = requestedChapter(project, options);
+        return requested ? [requested] : [];
+      }
       var selected = sections.find(function (section) {
         return cleanKey(section && section.id) === options.sectionId;
       });
@@ -251,6 +318,7 @@
       ? (options.diagnostics.length ? options.diagnostics : asArray(manuscript.advice))
       : [];
     var limitedDiagnostics = diagnosticsSource.slice(0, AI_PROMPT_LIMITS.maxDiagnostics);
+    var isChapterDeepening = options.type === AI_PROMPT_TYPES.DEEPEN_CHAPTER;
 
     if (allSections.length > limitedSections.length) {
       budget.truncated = true;
@@ -273,7 +341,16 @@
     // unrelated keys instead of emitting empty containers: this prevents author,
     // research, reference, or diagnostic data from silently travelling with a
     // selected excerpt or a single section.
-    if (options.scope === "selected-text") {
+    if (isChapterDeepening) {
+      payload.project = {
+        centralResearchQuestion: takeText(
+          research.centralResearchQuestion,
+          "research.centralResearchQuestion",
+          budget,
+          CENTRAL_RESEARCH_QUESTION_MAX_CHARS,
+        ),
+      };
+    } else if (options.scope === "selected-text") {
       payload.project = {
         language: source.language === "en" ? "en" : "ja",
       };
@@ -324,7 +401,7 @@
     if (options.scope === "all" || options.scope === "section" || options.scope === "selected-text") {
       payload.manuscriptSections = limitedSections.map(function (section, index) {
         var item = isObject(section) ? section : {};
-        return {
+        var record = {
           id: takeText(item.id || "section-" + (index + 1), "section[" + index + "].id", budget, 120),
           title: takeText(item.title, "section[" + index + "].title", budget, 500),
           content: takeText(
@@ -336,6 +413,10 @@
               : AI_PROMPT_LIMITS.maxFieldChars,
           ),
         };
+        if (isChapterDeepening) {
+          record.chapterContract = chapterContractRecord(item, index, budget);
+        }
+        return record;
       });
     }
 
@@ -481,6 +562,71 @@
     ].join("\n");
   }
 
+  function deepenChapterInstructions(options) {
+    return [
+      "## タスク",
+      "選択された1章を深掘りし、根拠の範囲内で肉付けするための構成案を作成してください。",
+      "chapterContractは著者が整理した論証計画であり、それ自体を検証済みの証拠や確定した研究成果として扱ってはいけません。",
+      "章本文、8項目のchapterContract、博士論文全体の中心研究課題の間にある論理のつながり、一貫性、欠落を確認してください。",
+      "SOURCE_DATA_JSONには参考文献情報が含まれていません。実在する文献のタイトル、著者、年、DOI、URLを推測してはいけません。",
+      "根拠のある肉付け案、追加で必要な根拠、引用候補の検索計画、著者に確認すべき不明点を混ぜずに、それぞれ指定の配列へ分離してください。",
+      "citationCandidatesには書誌情報ではなく、必要な根拠の種類と再現可能な検索語案だけを書き、verificationStatusは必ずunverifiedとしてください。",
+      "章本文またはchapterContractが空の場合は、内容を創作せず、proposedOutline、evidenceNeeds、unknownsを中心に返してください。",
+      "strictness=" + options.strictness + " とし、strictほど主張と根拠の対応を小さく検証可能な単位に分けてください。",
+      "",
+      "## 出力契約",
+      JSON.stringify({
+        schemaVersion: 1,
+        task: "deepen-chapter",
+        sectionId: "selected-section-id",
+        contractAssessment: [{
+          field: "problem|priorGap|proposal|hypothesis|supportingEvidence|supportedConclusion|limitations|thesisContribution",
+          status: "supported|partially-supported|missing|inconsistent",
+          sourceExcerpt: "章本文またはchapterContract中の短い根拠。根拠がなければ空文字",
+          issue: "評価理由",
+        }],
+        sourceGroundedExpansion: [{
+          purpose: "肉付けの目的",
+          proposedText: "SOURCE_DATA_JSONだけで裏付けられる本文案",
+          sourceExcerpts: ["根拠となる短い抜粋"],
+          evidenceStatus: "source-supported",
+        }],
+        proposedOutline: [{
+          heading: "節見出し案",
+          purpose: "この節が論証で果たす役割",
+          contractFields: ["対応するchapterContractのキー"],
+          evidenceStatus: "source-supported|needs-author-confirmation",
+        }],
+        paragraphPlans: [{
+          heading: "対応する節見出し案",
+          claim: "段落で扱う主張",
+          reasoningSteps: ["論理展開"],
+          sourceExcerpts: ["利用できる根拠"],
+          evidenceStatus: "source-supported|needs-author-confirmation",
+        }],
+        evidenceNeeds: [{
+          claim: "裏付けが不足する主張",
+          kind: "data|experiment|analysis|figure|table|comparison|other",
+          reason: "必要な理由",
+          placeholder: "[DATA NEEDED: 必要データ]",
+        }],
+        citationCandidates: [{
+          claim: "外部根拠が必要な主張",
+          evidenceType: "必要な文献・根拠の種類",
+          searchQuery: "検索語案",
+          verificationStatus: "unverified",
+          placeholder: "[CITATION NEEDED: 必要な根拠]",
+        }],
+        unknowns: [{
+          contractField: "対応するchapterContractのキーまたは空文字",
+          question: "著者に確認する質問",
+          placeholder: "[VERIFY: 確認事項]",
+        }],
+        cannotConclude: ["現在の章本文と論証契約からは言えないこと"],
+      }, null, 2),
+    ].join("\n");
+  }
+
   function proofreadInstructions(options) {
     return [
       "## タスク",
@@ -527,6 +673,8 @@
         return translationInstructions(options);
       case AI_PROMPT_TYPES.STRENGTHEN_CONTENT:
         return strengthenInstructions(options);
+      case AI_PROMPT_TYPES.DEEPEN_CHAPTER:
+        return deepenChapterInstructions(options);
       case AI_PROMPT_TYPES.PROOFREAD:
         return proofreadInstructions(options);
       case AI_PROMPT_TYPES.LITERATURE_RESEARCH:
@@ -538,6 +686,9 @@
   }
 
   function scopeDescription(options) {
+    if (options.type === AI_PROMPT_TYPES.DEEPEN_CHAPTER) {
+      return "対象範囲: 章 " + options.sectionId + "（この章以外の本文は含まれません）";
+    }
     if (options.scope === "section") return "対象範囲: セクション " + (options.sectionId || "現在のセクション");
     if (options.scope === "selected-text") return "対象範囲: ユーザーが選択した本文のみ";
     if (options.scope === "diagnostics") return "対象範囲: 診断結果とメタデータ（本文は含めない）";
@@ -607,6 +758,7 @@
 
   function createAiPrompt(project, rawOptions) {
     var options = normalizeAiPromptOptions(rawOptions);
+    var deepenChapter = requireDeepenChapter(project, options);
     var maximum = options.maxPromptChars;
     var fittedRequest = fitAdditionalRequest(options, maximum);
     options = fittedRequest.options;
@@ -662,6 +814,32 @@
     }
     if (options.scope === "section" && !options.sectionId) {
       warnings.push("セクションIDが未指定のため、現在または先頭のセクションを使用しました。");
+    }
+    if (deepenChapter) {
+      var chapterContract = isObject(deepenChapter.chapterContract)
+        ? deepenChapter.chapterContract
+        : {};
+      var completedContractFields = CHAPTER_CONTRACT_FIELDS.filter(function (key) {
+        return cleanText(chapterContract[key]).trim();
+      }).length;
+      if (completedContractFields === 0) {
+        warnings.push("章の論証契約が未入力です。不足箇所を推測せず、著者への確認質問を中心に生成します。");
+      } else if (completedContractFields < CHAPTER_CONTRACT_FIELDS.length) {
+        warnings.push(
+          "章の論証契約に未入力項目があります（" +
+          completedContractFields +
+          "/" +
+          CHAPTER_CONTRACT_FIELDS.length +
+          "項目入力済み）。",
+        );
+      }
+      var sourceResearch = isObject(project && project.research) ? project.research : {};
+      if (!cleanText(sourceResearch.centralResearchQuestion).trim()) {
+        warnings.push("博士論文全体の中心研究課題が未入力です。全体への貢献を推測させないため、入力してから再生成してください。");
+      }
+      if (!cleanText(deepenChapter.content).trim()) {
+        warnings.push("対象章の本文が空です。本文を創作せず、構成案と確認事項を中心に生成します。");
+      }
     }
 
     var truncatedFields = best.built.labels.slice();

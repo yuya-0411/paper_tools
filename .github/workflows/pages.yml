@@ -31,6 +31,7 @@ jobs:
         run: |
           set -euo pipefail
           node tests/node-tests.cjs
+          node tests/chapter-outline-tests.cjs
           node tests/custom-template-tests.cjs
           node tests/evidence-audit-tests.cjs
           node tests/ai-prompt-tests.cjs

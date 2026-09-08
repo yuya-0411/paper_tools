@@ -990,6 +990,7 @@ li[aria-current="step"] .step-number,
 .section-nav button {
   display: grid;
   grid-template-columns: 1fr auto;
+  align-items: start;
   gap: 8px;
   width: 100%;
   padding: 9px 10px;
@@ -998,6 +999,22 @@ li[aria-current="step"] .step-number,
   border: 0;
   border-radius: 5px;
   text-align: left;
+}
+
+.section-nav button > span:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.section-nav__badges {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-end;
+}
+
+.section-nav__badges .badge {
+  white-space: nowrap;
 }
 
 .section-nav button:hover,
@@ -1112,6 +1129,79 @@ li[aria-current="step"] .step-number,
   min-height: 84px;
 }
 
+.chapter-contract-panel {
+  display: grid;
+  gap: 20px;
+}
+
+.chapter-contract-panel > h1 {
+  margin-bottom: 0;
+}
+
+.chapter-contract-intro {
+  margin: 0;
+}
+
+.chapter-contract-panel > .form-field textarea {
+  min-height: 104px;
+}
+
+.chapter-contract-progress {
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.chapter-contract-progress .completion-meter {
+  margin-top: 0;
+}
+
+.chapter-contract-grid {
+  display: grid;
+  gap: 14px;
+}
+
+.contract-field {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+
+.contract-field label {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  color: var(--ink);
+  font-weight: 750;
+  line-height: 1.55;
+}
+
+.contract-field__number {
+  display: inline-grid;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  place-items: center;
+  color: #fff;
+  background: var(--accent);
+  border-radius: 50%;
+  font-size: 0.76rem;
+}
+
+.contract-field textarea {
+  min-height: 112px;
+}
+
+.chapter-contract-actions {
+  padding-top: 4px;
+}
+
 .editor-inspector {
   display: flex;
   flex-direction: column;
@@ -1120,7 +1210,7 @@ li[aria-current="step"] .step-number,
 
 .inspector-tabs {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   border-bottom: 1px solid var(--line);
 }
 
@@ -1142,6 +1232,62 @@ li[aria-current="step"] .step-number,
 .inspector-content {
   padding: 16px;
   overflow-y: auto;
+}
+
+.outline-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.outline-row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 9px;
+  padding: 12px;
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+
+.outline-row__number {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  color: var(--accent-dark);
+  background: var(--accent-soft);
+  border-radius: 50%;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.outline-row__body {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.outline-row__body small {
+  color: var(--muted);
+}
+
+.outline-row__actions {
+  display: flex;
+  grid-column: 1 / -1;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-left: 37px;
+}
+
+.outline-row__actions button {
+  min-height: 30px;
+  padding: 4px 8px;
+}
+
+.outline-add {
+  width: 100%;
+  margin-top: 14px;
 }
 
 .editor-inspector .repeater-row {
@@ -1543,6 +1689,14 @@ li[aria-current="step"] .step-number,
   .manuscript-textarea,
   .source-textarea {
     min-height: 380px;
+  }
+
+  .editor-document {
+    padding: 22px 16px;
+  }
+
+  .contract-field {
+    padding: 13px;
   }
 
   .asset-row,

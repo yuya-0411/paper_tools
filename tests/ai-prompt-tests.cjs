@@ -93,6 +93,19 @@ function privateProjectFixture() {
   return project;
 }
 
+function completeChapterContract(prefix = "VISIBLE") {
+  return {
+    problem: `${prefix}_PROBLEM`,
+    priorGap: `${prefix}_PRIOR_GAP`,
+    proposal: `${prefix}_PROPOSAL`,
+    hypothesis: `${prefix}_HYPOTHESIS`,
+    supportingEvidence: `${prefix}_SUPPORTING_EVIDENCE`,
+    supportedConclusion: `${prefix}_SUPPORTED_CONCLUSION`,
+    limitations: `${prefix}_LIMITATIONS`,
+    thesisContribution: `${prefix}_THESIS_CONTRIBUTION`,
+  };
+}
+
 test("CommonJSとPaperTools名前空間に同じAPIを公開する", () => {
   assert.equal(PT.buildAiPrompt, prompts.buildAiPrompt);
   assert.equal(PT.createAiPrompt, prompts.createAiPrompt);
@@ -137,6 +150,126 @@ test("内容補強は新規の結果や文献の創作を禁止する", () => {
   assert.match(prompt, /新しい結果、数値、実験条件、先行研究、優位性を創作/);
   assert.match(prompt, /"citationNeeds"/);
   assert.match(prompt, /needs-author-confirmation/);
+});
+
+test("章の深掘りはsectionスコープへ固定し選択章だけを最小開示する", () => {
+  const project = privateProjectFixture();
+  project.research.centralResearchQuestion = "VISIBLE_CENTRAL_RESEARCH_QUESTION";
+  project.history = [{ action: "PRIVATE_HISTORY" }];
+  project.assets = [{ name: "PRIVATE_ASSET.csv", data: "PRIVATE_ASSET_BINARY" }];
+  const selected = project.manuscript.sections.find((section) => section.id === "abstract");
+  selected.content = "VISIBLE_TARGET_CHAPTER_BODY";
+  selected.chapterContract = {
+    ...completeChapterContract(),
+    extraPrivateField: "PRIVATE_CONTRACT_EXTRA",
+  };
+
+  const before = JSON.stringify(project);
+  const result = prompts.createAiPrompt(project, {
+    type: "chapter-deepening",
+    scope: "all",
+    sectionId: "abstract",
+  });
+  const payload = sourceDataOf(result.prompt);
+
+  assert.equal(result.type, "deepen-chapter");
+  assert.equal(result.scope, "section");
+  assert.equal(result.options.scope, "section");
+  assert.deepEqual(Object.keys(payload).sort(), ["manuscriptSections", "project", "sourcePolicy"]);
+  assert.deepEqual(payload.project, {
+    centralResearchQuestion: "VISIBLE_CENTRAL_RESEARCH_QUESTION",
+  });
+  assert.equal(payload.manuscriptSections.length, 1);
+  assert.deepEqual(
+    Object.keys(payload.manuscriptSections[0]).sort(),
+    ["chapterContract", "content", "id", "title"],
+  );
+  assert.equal(payload.manuscriptSections[0].id, "abstract");
+  assert.equal(payload.manuscriptSections[0].content, "VISIBLE_TARGET_CHAPTER_BODY");
+  assert.deepEqual(
+    Object.keys(payload.manuscriptSections[0].chapterContract),
+    [
+      "problem",
+      "priorGap",
+      "proposal",
+      "hypothesis",
+      "supportingEvidence",
+      "supportedConclusion",
+      "limitations",
+      "thesisContribution",
+    ],
+  );
+  assert.match(JSON.stringify(payload), /VISIBLE_THESIS_CONTRIBUTION/);
+  assert.doesNotMatch(
+    JSON.stringify(payload),
+    /PRIVATE_|THIS_BINARY_MUST_NOT_APPEAR|THIS_TYPST_SOURCE_MUST_NOT_APPEAR/,
+  );
+  assert.equal(JSON.stringify(project), before);
+});
+
+test("章の深掘りは捏造を禁じ根拠・引用候補・不明点を分離する", () => {
+  const project = projectFixture();
+  project.research.centralResearchQuestion = "研究全体で何を明らかにするか。";
+  project.manuscript.sections[1].chapterContract = completeChapterContract("METHOD");
+  const prompt = prompts.buildAiPrompt(project, {
+    type: "deepen-chapter",
+    scope: "metadata",
+    sectionId: "method",
+    strictness: "strict",
+  });
+
+  assert.match(prompt, /章の深掘り・肉付け/);
+  assert.match(prompt, /chapterContractは著者が整理した論証計画/);
+  assert.match(prompt, /検証済みの証拠や確定した研究成果として扱ってはいけません/);
+  assert.match(prompt, /実在する文献のタイトル、著者、年、DOI、URLを推測してはいけません/);
+  assert.match(prompt, /"sourceGroundedExpansion"/);
+  assert.match(prompt, /"evidenceNeeds"/);
+  assert.match(prompt, /"citationCandidates"/);
+  assert.match(prompt, /"unknowns"/);
+  assert.match(prompt, /"verificationStatus": "unverified"/);
+  assert.match(prompt, /"cannotConclude"/);
+  assert.match(prompt, /対象範囲: 章 method/);
+});
+
+test("章の深掘りは対象章が未指定または存在しない場合に停止する", () => {
+  const project = projectFixture();
+  assert.throws(
+    () => prompts.createAiPrompt(project, { type: "deepen-chapter" }),
+    (error) => error && error.code === "chapter-not-found" && /対象章/.test(error.message),
+  );
+  assert.throws(
+    () => prompts.createAiPrompt(project, {
+      type: "deepen-chapter",
+      sectionId: "missing-chapter",
+    }),
+    (error) => error && error.code === "chapter-not-found" && /見つかりません/.test(error.message),
+  );
+});
+
+test("章の深掘りは論証契約・中心研究課題・本文の未入力を警告する", () => {
+  const project = projectFixture();
+  const selected = project.manuscript.sections[0];
+  selected.content = "";
+  selected.chapterContract = {};
+  project.research.centralResearchQuestion = "";
+  const emptyResult = prompts.createAiPrompt(project, {
+    type: "deepen-chapter",
+    sectionId: selected.id,
+  });
+  const emptyWarnings = emptyResult.warnings.join("\n");
+  assert.match(emptyWarnings, /章の論証契約が未入力/);
+  assert.match(emptyWarnings, /中心研究課題が未入力/);
+  assert.match(emptyWarnings, /対象章の本文が空/);
+
+  selected.content = "確認済みの章本文";
+  selected.chapterContract = { problem: "この章が扱う問題" };
+  project.research.centralResearchQuestion = "論文全体の中心研究課題";
+  const partialResult = prompts.createAiPrompt(project, {
+    type: "deepen-chapter",
+    sectionId: selected.id,
+  });
+  assert.match(partialResult.warnings.join("\n"), /1\/8項目入力済み/);
+  assert.doesNotMatch(partialResult.warnings.join("\n"), /中心研究課題が未入力|対象章の本文が空/);
 });
 
 test("校正は意味と主張を維持し修正履歴を要求する", () => {

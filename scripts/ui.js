@@ -392,7 +392,7 @@
             else if (route.name === "projects") await this.renderProjects();
             else if (route.name === "new") await this.renderWizard(route.id, route.step);
             else if (route.name === "templates") await this.renderTemplates();
-            else if (route.name === "assistant") await this.renderAssistant(route.id);
+            else if (route.name === "assistant") await this.renderAssistant(route.id, route.step);
             else if (route.name === "cloud") await this.renderCloud();
             else if (route.name === "settings") this.renderSettings();
             else if (route.name === "editor") await this.openEditor(route.id);
@@ -450,7 +450,7 @@
             {},
             h("li", { text: "テンプレートを選ぶ" }),
             h("li", { text: "確認できている研究情報を入力する" }),
-            h("li", { text: "草稿を編集し，PDFまたはTypstへ出力する" }),
+            h("li", { text: "章の論証を整理して本文を編集し，PDFまたはTypstへ出力する" }),
           ),
         ),
       );
@@ -493,6 +493,7 @@
           "div",
           { className: "grid grid--three" },
           this.infoCard("テンプレートを自動解釈", "Markdown，Typst，LaTeXなどを選ぶだけで，見出し・言語・段組・必要項目を登録します．"),
+          this.infoCard("章立てと論証契約", "章を追加・並べ替えし，各章が解く問題，仮説，根拠，限界，全体への答えを8項目で整理します．"),
           this.infoCard("外部APIなしで草稿化", "入力済みの内容だけを使い，不足部分は明示的なTODOとして残します．"),
           this.infoCard("図・データの不足を診断", "研究内容と原稿を照合し，追加すべき図，表，評価データを具体的に示します．"),
           this.infoCard("英文変換プロンプト", "日本語原稿を英語へ変換するための，捏造防止条件付きプロンプトを作成します．"),
@@ -1147,6 +1148,8 @@
     renderEditor() {
       const project = this.currentProject;
       project.punctuation = this.settings.punctuation;
+      if (!["content", "contract", "source"].includes(this.editorMode)) this.editorMode = "content";
+      if (!["outline", "advice", "inputs", "assets", "history"].includes(this.inspectorTab)) this.inspectorTab = "advice";
       let activeId = project.ui.activeSectionId;
       if (!project.manuscript.sections.some((section) => section.id === activeId)) activeId = project.manuscript.sections[0] && project.manuscript.sections[0].id;
       project.ui.activeSectionId = activeId;
@@ -1168,30 +1171,65 @@
     }
 
     editorSidebar(project, activeId, completeness) {
-      const sectionNav = h("div", { className: "section-nav", role: "navigation", ariaLabel: "論文セクション" });
+      const sectionNav = h("div", { className: "section-nav", role: "navigation", ariaLabel: "章・セクション" });
       project.manuscript.sections.forEach((section) => {
         const words = section.content.trim().length;
-        sectionNav.appendChild(h("button", { type: "button", ariaCurrent: section.id === activeId ? "true" : "false", on: { click: () => { project.ui.activeSectionId = section.id; this.editorMode = "content"; this.renderEditor(); } } }, h("span", { text: section.title }), h("span", { className: words ? "badge badge--accent" : "badge", text: words ? "済" : "空" })));
+        const contract = PT.chapterContractProgress(section);
+        sectionNav.appendChild(h(
+          "button",
+          {
+            type: "button",
+            dataset: { chapterId: section.id },
+            ariaCurrent: section.id === activeId ? "true" : "false",
+            on: { click: () => { project.ui.activeSectionId = section.id; this.editorMode = "content"; this.renderEditor(); } },
+          },
+          h("span", { text: section.title }),
+          h(
+            "span",
+            { className: "section-nav__badges" },
+            h("span", { className: words ? "badge badge--accent" : "badge", text: words ? "本文済" : "本文空" }),
+            h("span", { className: contract.completed === contract.total ? "badge badge--accent" : "badge", text: `${contract.completed}/${contract.total}` }),
+          ),
+        ));
       });
       return h(
         "aside",
         { className: "editor-sidebar" },
         h("div", { className: "editor-project-name" }, h("strong", { text: project.name }), h("small", { text: project.title || "タイトル未入力" }), h("div", { className: "completion-meter", ariaLabel: `入力充足度 ${completeness}%` }, h("span", { style: { width: `${completeness}%` } }))),
         sectionNav,
-        h("div", { className: "card__actions", style: { marginTop: "16px" } }, button("全体を再生成", "button-secondary", () => this.generateAll()), button("診断を更新", "button-quiet", () => this.refreshAdvice())),
+        h(
+          "div",
+          { className: "card__actions", style: { marginTop: "16px" } },
+          button("章構成を編集", "button-secondary", () => { this.inspectorTab = "outline"; this.renderEditor(); }, { id: "open-chapter-outline" }),
+          button("全体を再生成", "button-secondary", () => this.generateAll()),
+          button("診断を更新", "button-quiet", () => this.refreshAdvice()),
+        ),
       );
     }
 
     editorMain(project, active) {
       const body = h("section", { className: "editor-main" });
-      const toggle = h("div", { className: "segmented-control", ariaLabel: "編集表示" }, button("本文", "", () => { this.editorMode = "content"; this.renderEditor(); }, { ariaPressed: this.editorMode === "content" ? "true" : "false" }), button("Typst", "", () => { this.editorMode = "source"; this.renderEditor(); }, { ariaPressed: this.editorMode === "source" ? "true" : "false" }));
-      const toolbar = h("div", { className: "editor-toolbar" }, toggle, h("div", { className: "button-row" }, this.editorMode === "content" ? button("このセクションを再生成", "button-secondary", () => this.regenerateActiveSection()) : button("生成ソースへ戻す", "button-secondary", () => this.resetTypstSource()), button("履歴を見る", "button-quiet", () => { this.inspectorTab = "history"; this.renderEditor(); })));
+      const toggle = h(
+        "div",
+        { className: "segmented-control", ariaLabel: "編集表示" },
+        button("本文", "", () => { this.editorMode = "content"; this.renderEditor(); }, { id: "editor-tab-content", ariaPressed: this.editorMode === "content" ? "true" : "false" }),
+        button("論証契約", "", () => { this.editorMode = "contract"; this.renderEditor(); }, { id: "editor-tab-contract", ariaPressed: this.editorMode === "contract" ? "true" : "false" }),
+        button("Typst", "", () => { this.editorMode = "source"; this.renderEditor(); }, { id: "editor-tab-source", ariaPressed: this.editorMode === "source" ? "true" : "false" }),
+      );
+      const modeAction = this.editorMode === "content"
+        ? button("このセクションを再生成", "button-secondary", () => this.regenerateActiveSection())
+        : this.editorMode === "contract"
+          ? button("深掘りプロンプトを作る", "button-secondary", () => this.navigate(`assistant/${encodeURIComponent(project.id)}/${encodeURIComponent(active.id)}`), { id: "deepen-chapter-button", dataset: { action: "deepen-chapter" } })
+          : button("生成ソースへ戻す", "button-secondary", () => this.resetTypstSource());
+      const toolbar = h("div", { className: "editor-toolbar" }, toggle, h("div", { className: "button-row" }, modeAction, button("履歴を見る", "button-quiet", () => { this.inspectorTab = "history"; this.renderEditor(); })));
       const documentPanel = h("div", { className: "editor-document" });
       if (this.editorMode === "source") {
         documentPanel.appendChild(h("h1", { text: "Typstソース" }));
         const source = project.typstSource || PT.renderTypst(project);
         const sourceArea = h("textarea", { className: "source-textarea", value: source, maxLength: 2000000, spellcheck: false, ariaLabel: "Typstソース", on: { focus: () => this.snapshotTypstOnce(), input: (event) => { project.typstSource = PT.plainText(event.target.value, 2000000); this.setSaveState("未保存"); this.queueProjectSave(project); } } });
         documentPanel.append(sourceArea, h("p", { className: "field-help", text: "直接編集した内容はTypst書き出しへ保存されます（最大200万文字）．ブラウザー印刷には反映されません．草稿を再生成すると自動生成ソースへ戻ります．" }));
+      } else if (this.editorMode === "contract") {
+        documentPanel.appendChild(this.chapterContractPanel(project, active));
       } else {
         documentPanel.appendChild(h("h1", { text: active.title }));
         if (project.typstSource) documentPanel.appendChild(h("div", { className: "notice notice--warning", text: "直接編集したTypstソースがあります．本文の変更はそのソースへ自動反映されません．Typstタブで「生成ソースへ戻す」と同期できます．" }));
@@ -1203,15 +1241,198 @@
       return body;
     }
 
+    chapterContractPanel(project, active) {
+      active.chapterContract = PT.normalizeChapterContract(active.chapterContract);
+      const progress = PT.chapterContractProgress(active);
+      const status = h("strong", { id: "chapter-contract-progress", ariaLive: "polite", text: `${progress.completed}/${progress.total}項目を入力済み` });
+      const progressFill = h("span", { style: { width: `${progress.percent}%` } });
+      const progressMeter = h("div", { className: "completion-meter", ariaLabel: `論証契約 ${progress.completed}/${progress.total}項目` }, progressFill);
+      const updateProgress = () => {
+        const next = PT.chapterContractProgress(active);
+        status.textContent = `${next.completed}/${next.total}項目を入力済み`;
+        progressFill.style.width = `${next.percent}%`;
+        progressMeter.setAttribute("aria-label", `論証契約 ${next.completed}/${next.total}項目`);
+      };
+      const centralQuestion = h("textarea", {
+        id: "central-research-question",
+        className: "text-area",
+        value: project.research.centralResearchQuestion || "",
+        maxLength: PT.CENTRAL_RESEARCH_QUESTION_MAX_CHARS,
+        placeholder: "例：本論文は，○○という条件下で△△をどのように実現できるかを問う．",
+        on: {
+          input: (event) => {
+            project.research.centralResearchQuestion = PT.plainText(event.target.value, PT.CENTRAL_RESEARCH_QUESTION_MAX_CHARS);
+            this.setSaveState("未保存");
+            this.queueProjectSave(project);
+          },
+        },
+      });
+      const contractFields = h("div", { className: "chapter-contract-grid" });
+      PT.CHAPTER_CONTRACT_FIELDS.forEach((definition, index) => {
+        const control = h("textarea", {
+          id: `chapter-contract-${definition.key}`,
+          className: "text-area",
+          value: active.chapterContract[definition.key],
+          maxLength: PT.CHAPTER_CONTRACT_MAX_CHARS,
+          placeholder: "この章について，確認できている事実と論理を簡潔に記入します．",
+          dataset: { contractKey: definition.key },
+          on: {
+            input: (event) => {
+              active.chapterContract[definition.key] = PT.plainText(event.target.value, PT.CHAPTER_CONTRACT_MAX_CHARS);
+              active.updatedAt = PT.nowIso();
+              this.setSaveState("未保存");
+              this.queueProjectSave(project);
+              updateProgress();
+            },
+          },
+        });
+        contractFields.appendChild(h(
+          "div",
+          { className: "contract-field" },
+          h("label", { htmlFor: control.id }, h("span", { className: "contract-field__number", text: String(index + 1) }), h("span", { text: definition.label })),
+          control,
+        ));
+      });
+      return h(
+        "div",
+        { className: "chapter-contract-panel", dataset: { chapterId: active.id } },
+        h("h1", { text: `${active.title} — 論証契約` }),
+        h(
+          "div",
+          { className: "notice chapter-contract-intro" },
+          h("strong", { text: "章の論理を先に固定するための設計メモです" }),
+          h("p", { text: "法的な契約書ではありません．入力済みであっても，事実確認・引用確認が済んだことにはなりません．本文とは分けて保存されます．" }),
+        ),
+        field("博士論文全体の中心研究課題", centralQuestion, "全章に共通する問いです．各章の8番目で，この問いへの答えを一文にします．"),
+        h("div", { className: "chapter-contract-progress" }, status, progressMeter),
+        contractFields,
+        h(
+          "div",
+          { className: "button-row chapter-contract-actions" },
+          button("この章を深掘りするプロンプトを作る", "button", () => this.navigate(`assistant/${encodeURIComponent(project.id)}/${encodeURIComponent(active.id)}`), { dataset: { action: "deepen-chapter" } }),
+          button("本文へ戻る", "button-quiet", () => { this.editorMode = "content"; this.renderEditor(); }),
+        ),
+      );
+    }
+
     editorInspector(project) {
       const tabs = h("div", { className: "inspector-tabs", role: "tablist" });
-      [["advice", "助言"], ["inputs", "研究情報"], ["assets", "図・データ"], ["history", "履歴"]].forEach(([id, label]) => tabs.appendChild(h("button", { type: "button", role: "tab", ariaSelected: this.inspectorTab === id ? "true" : "false", on: { click: () => { this.inspectorTab = id; this.renderEditor(); } }, text: label })));
+      [["outline", "章構成"], ["advice", "助言"], ["inputs", "研究情報"], ["assets", "図・データ"], ["history", "履歴"]].forEach(([id, label]) => tabs.appendChild(h("button", { type: "button", role: "tab", ariaSelected: this.inspectorTab === id ? "true" : "false", on: { click: () => { this.inspectorTab = id; this.renderEditor(); } }, text: label })));
       const content = h("div", { className: "inspector-content" });
+      if (this.inspectorTab === "outline") content.appendChild(this.outlinePanel(project));
       if (this.inspectorTab === "advice") content.appendChild(this.advicePanel(project));
       if (this.inspectorTab === "inputs") content.appendChild(this.inputsPanel(project));
       if (this.inspectorTab === "assets") content.appendChild(this.assetsPanel(project));
       if (this.inspectorTab === "history") content.appendChild(this.historyPanel(project));
       return h("aside", { className: "editor-inspector" }, tabs, content);
+    }
+
+    outlinePanel(project) {
+      const wrapper = h("div", { className: "outline-panel" });
+      wrapper.appendChild(h(
+        "div",
+        { className: "section-heading", style: { marginTop: "0" } },
+        h("div", {}, h("h2", { text: "章構成" }), h("p", { text: `章・セクション ${project.manuscript.sections.length}項目・上から本文の順番です．` })),
+      ));
+      wrapper.appendChild(h("p", { className: "field-help", text: "章名の変更，追加，削除，並べ替えができます．上下ボタンはキーボードでも操作できます．" }));
+      const list = h("div", { id: "chapter-outline", className: "outline-list" });
+      project.manuscript.sections.forEach((section, index) => {
+        const titleInput = h("input", {
+          id: `outline-title-${section.id}`,
+          className: "text-input",
+          value: section.title,
+          maxLength: 300,
+          ariaLabel: `${index + 1}番目の章名`,
+          on: {
+            input: (event) => {
+              section.title = PT.plainText(event.target.value, 300);
+              section.updatedAt = PT.nowIso();
+              project.manuscript.outlineCustomized = true;
+              this.setSaveState("未保存");
+              this.queueProjectSave(project);
+            },
+          },
+        });
+        const move = (offset) => {
+          const destination = index + offset;
+          if (destination < 0 || destination >= project.manuscript.sections.length) return;
+          const moved = project.manuscript.sections.splice(index, 1)[0];
+          project.manuscript.sections.splice(destination, 0, moved);
+          project.manuscript.outlineCustomized = true;
+          this.setSaveState("未保存");
+          this.queueProjectSave(project);
+          this.renderEditor();
+        };
+        const remove = async () => {
+          if (project.manuscript.sections.length <= 1) return this.toast("最後の1章は削除できません．", true);
+          const hasContent = Boolean(section.content.trim());
+          const contractCount = PT.chapterContractProgress(section).completed;
+          const referencedAssets = (project.assets || []).filter((asset) => asset.target === section.id).length;
+          const details = [
+            hasContent ? "本文あり" : "",
+            contractCount ? `論証契約 ${contractCount}/8` : "",
+            referencedAssets ? `関連する図・データ ${referencedAssets}件` : "",
+          ].filter(Boolean).join("・");
+          const ok = await this.confirm(
+            "章を削除",
+            `「${section.title || "無題の章"}」を削除します${details ? `（${details}）` : ""}．削除前の状態は履歴から復元できます．`,
+            "削除する",
+            true,
+          );
+          if (!ok) return;
+          project.history = PT.snapshotProject(project, "before-chapter-delete", section.id, this.settings);
+          project.manuscript.sections.splice(index, 1);
+          project.manuscript.outlineCustomized = true;
+          if (project.instructions && project.instructions.sections) delete project.instructions.sections[section.id];
+          (project.assets || []).forEach((asset) => { if (asset.target === section.id) asset.target = ""; });
+          if (project.ui.activeSectionId === section.id) {
+            const replacement = project.manuscript.sections[Math.min(index, project.manuscript.sections.length - 1)];
+            project.ui.activeSectionId = replacement.id;
+          }
+          project.manuscript.advice = PT.analyzeProject(project, project.manuscript);
+          this.setSaveState("未保存");
+          this.queueProjectSave(project);
+          this.renderEditor();
+        };
+        list.appendChild(h(
+          "article",
+          { className: "outline-row", dataset: { chapterId: section.id } },
+          h("span", { className: "outline-row__number", text: String(index + 1), ariaHidden: "true" }),
+          h("div", { className: "outline-row__body" }, h("label", { className: "visually-hidden", htmlFor: titleInput.id, text: `${index + 1}番目の章名` }), titleInput, h("small", { text: `論証契約 ${PT.chapterContractProgress(section).completed}/8` })),
+          h(
+            "div",
+            { className: "outline-row__actions" },
+            button("↑", "button-quiet", () => move(-1), { disabled: index === 0, ariaLabel: `${section.title}を上へ`, dataset: { chapterAction: "move-up" } }),
+            button("↓", "button-quiet", () => move(1), { disabled: index === project.manuscript.sections.length - 1, ariaLabel: `${section.title}を下へ`, dataset: { chapterAction: "move-down" } }),
+            button("開く", "button-link", () => { project.ui.activeSectionId = section.id; this.editorMode = "contract"; this.renderEditor(); }, { dataset: { chapterAction: "open-contract" } }),
+            button("削除", "button-quiet", remove, { disabled: project.manuscript.sections.length <= 1, ariaLabel: `${section.title}を削除`, dataset: { chapterAction: "delete" } }),
+          ),
+        ));
+      });
+      const addChapter = () => {
+        if (project.manuscript.sections.length >= 100) return this.toast("章は100件まで追加できます．", true);
+        const id = PT.makeId("chapter");
+        const section = {
+          id,
+          title: `新しい章 ${project.manuscript.sections.length + 1}`,
+          content: "",
+          chapterContract: PT.emptyChapterContract(),
+          updatedAt: PT.nowIso(),
+        };
+        project.manuscript.sections.push(section);
+        project.manuscript.outlineCustomized = true;
+        project.ui.activeSectionId = id;
+        this.editorMode = "contract";
+        this.setSaveState("未保存");
+        this.queueProjectSave(project);
+        this.renderEditor();
+        root.requestAnimationFrame(() => {
+          const control = document.getElementById("chapter-contract-problem");
+          if (control) control.focus();
+        });
+      };
+      wrapper.append(list, button("章を追加", "button-secondary outline-add", addChapter, { id: "add-chapter" }));
+      return wrapper;
     }
 
     advicePanel(project) {
@@ -1723,7 +1944,7 @@
       const currentHistory = previousProject.history;
       const restored = PT.normalizeProject(snapshot.project);
       restored.id = previousProject.id;
-      restored.assets = currentAssets;
+      restored.assets = PT.restoreAssetTargets(currentAssets, restored.assets);
       restored.history = currentHistory;
       restored.history = PT.snapshotProject(restored, "restore", snapshot.target || "project", this.settings);
       try {
@@ -2007,33 +2228,41 @@
       });
     }
 
-    async renderAssistant(identifier) {
+    async renderAssistant(identifier, chapterIdentifier) {
       await this.refreshProjects();
       const project = this.projects.find((item) => item.id === identifier)
         || (this.currentProject && this.projects.find((item) => item.id === this.currentProject.id))
         || this.projects[0];
-      const page = this.page("AIプロンプト作業台", "原稿を外部送信せず，ローカルLLMやCodex／Claude Codeへ渡す指示文だけを作成します．", true);
+      const page = this.page("AIプロンプト作業台", "原稿を外部送信せず，章の深掘り，英文変換，模擬査読などを依頼する指示文だけを作成します．", true);
       if (!project) {
-        page.appendChild(emptyState("対象プロジェクトがありません", "先に論文プロジェクトを作成すると，英文変換・模擬査読・内容補強のプロンプトを生成できます．", "新規作成", () => this.navigate("new")));
+        page.appendChild(emptyState("対象プロジェクトがありません", "先に論文プロジェクトを作成すると，章の深掘り・英文変換・模擬査読・内容補強のプロンプトを生成できます．", "新規作成", () => this.navigate("new")));
         return;
       }
 
+      const requestedSection = project.manuscript.sections.find((section) => section.id === chapterIdentifier);
+      const selectedSectionId = requestedSection
+        ? requestedSection.id
+        : project.manuscript.sections.some((section) => section.id === project.ui.activeSectionId)
+          ? project.ui.activeSectionId
+          : project.manuscript.sections[0].id;
+      const chapterPromptRequested = Boolean(requestedSection);
       const projectSelect = h("select", { id: "assistant-project", className: "select-input" }, this.projects.map((item) => h("option", { value: item.id, text: item.name, selected: item.id === project.id })));
       const typeSelect = h("select", { id: "assistant-type", className: "select-input" },
-        h("option", { value: "translate-english", text: "英文変換（日本語 → 英語）" }),
+        h("option", { value: "deepen-chapter", text: "章の深掘り・肉付け", selected: chapterPromptRequested }),
+        h("option", { value: "translate-english", text: "英文変換（日本語 → 英語）", selected: !chapterPromptRequested }),
         h("option", { value: "peer-review", text: "模擬査読" }),
         h("option", { value: "strengthen-content", text: "内容の補強・拡張" }),
         h("option", { value: "proofread", text: "誤字・表現修正" }),
         h("option", { value: "literature-research", text: "文献調査支援" }),
       );
       const scopeSelect = h("select", { id: "assistant-scope", className: "select-input" },
-        h("option", { value: "all", text: "原稿全体" }),
-        h("option", { value: "section", text: "1つのセクション" }),
+        h("option", { value: "all", text: "原稿全体", selected: !chapterPromptRequested }),
+        h("option", { value: "section", text: "1つの章・セクション", selected: chapterPromptRequested }),
         h("option", { value: "selected-text", text: "貼り付けた範囲だけ" }),
         h("option", { value: "diagnostics", text: "診断結果だけ" }),
         h("option", { value: "metadata", text: "研究情報だけ" }),
       );
-      const sectionSelect = h("select", { id: "assistant-section", className: "select-input" }, project.manuscript.sections.map((section) => h("option", { value: section.id, text: section.title, selected: section.id === project.ui.activeSectionId })));
+      const sectionSelect = h("select", { id: "assistant-section", className: "select-input" }, project.manuscript.sections.map((section) => h("option", { value: section.id, text: section.title, selected: section.id === selectedSectionId })));
       const runnerSelect = h("select", { id: "assistant-runner", className: "select-input" },
         h("option", { value: "generic", text: "汎用" }),
         h("option", { value: "ollama", text: "Ollama" }),
@@ -2052,11 +2281,14 @@
       );
       const selectedText = h("textarea", { id: "assistant-selected-text", className: "text-area", maxLength: 50000, placeholder: "対象にしたい本文をここへ貼り付けます．" });
       const additionalRequest = h("textarea", { id: "assistant-additional", className: "text-area", maxLength: 5000, placeholder: "例：制御工学の査読者として，再現性を重点的に確認する" });
-      const sectionField = field("対象セクション", sectionSelect);
+      const sectionField = field("対象章・セクション", sectionSelect);
       const selectionField = field("対象範囲の本文", selectedText, "この欄は「貼り付けた範囲だけ」を選んだときに使用します．");
       sectionField.hidden = true;
       selectionField.hidden = true;
       const updateScopeControls = () => {
+        const chapterType = typeSelect.value === "deepen-chapter";
+        if (chapterType) scopeSelect.value = "section";
+        scopeSelect.disabled = chapterType;
         sectionField.hidden = scopeSelect.value !== "section";
         selectionField.hidden = scopeSelect.value !== "selected-text";
       };
@@ -2090,7 +2322,10 @@
         downloadButton.disabled = true;
         lastGeneratedType = "";
       };
-      typeSelect.addEventListener("change", invalidatePrompt);
+      typeSelect.addEventListener("change", () => {
+        updateScopeControls();
+        invalidatePrompt();
+      });
       projectSelect.addEventListener("change", (event) => {
         invalidatePrompt();
         this.navigate(`assistant/${encodeURIComponent(event.target.value)}`);
@@ -2105,6 +2340,7 @@
       englishVariantSelect.addEventListener("change", invalidatePrompt);
       selectedText.addEventListener("input", invalidatePrompt);
       additionalRequest.addEventListener("input", invalidatePrompt);
+      updateScopeControls();
       const generate = () => {
         invalidatePrompt();
         try {
@@ -2813,7 +3049,7 @@
       };
       stack.append(
         h("section", { className: "panel settings-panel" }, h("h2", { text: "文章と保存" }), h("p", { text: "設定はこのブラウザにのみ保存されます．新しく作るプロジェクトの既定値になります．" }), h("div", { className: "form-grid" }, field("日本語の句読点", punctuation), field("英語表記", englishVariant), field("1ファイルの上限（MB）", uploadLimit), field("履歴の保持件数", historyLimit)), h("div", { className: "button-row", style: { marginTop: "20px" } }, button("設定を保存", "button", save))),
-        h("section", { className: "panel settings-panel" }, h("h2", { text: "AI支援の境界" }), h("p", { text: "APIキーは保存せず，OpenAI互換APIやOllamaへ自動接続しません．英文変換，模擬査読，内容補強，校正，文献調査は，AI作業台でプロンプトとして作成します．" }), h("div", { className: "notice", style: { marginTop: "16px" } }, h("strong", { text: "利用者が確認してコピー" }), h("p", { text: "研究データをAIサービスへ自動送信しません．Codex，Claude Code，Ollama，Qwenなどへ貼り付ける前に内容を確認してください．" })), h("div", { className: "button-row", style: { marginTop: "16px" } }, button("AI作業台を開く", "button-secondary", () => this.navigate("assistant")))),
+        h("section", { className: "panel settings-panel" }, h("h2", { text: "AI支援の境界" }), h("p", { text: "APIキーは保存せず，OpenAI互換APIやOllamaへ自動接続しません．章の深掘り，英文変換，模擬査読，内容補強，校正，文献調査は，AI作業台でプロンプトとして作成します．" }), h("div", { className: "notice", style: { marginTop: "16px" } }, h("strong", { text: "利用者が確認してコピー" }), h("p", { text: "研究データをAIサービスへ自動送信しません．Codex，Claude Code，Ollama，Qwenなどへ貼り付ける前に内容を確認してください．" })), h("div", { className: "button-row", style: { marginTop: "16px" } }, button("AI作業台を開く", "button-secondary", () => this.navigate("assistant")))),
         h("section", { className: "panel settings-panel" }, h("h2", { text: "端末間同期（任意）" }), h("p", { text: this.cloudSession.signedIn ? `ログイン中：${this.cloudSession.user.email || "同期アカウント"}．同期はプロジェクトごとの明示操作です．` : "既定は端末内保存です．設定済みのHTTPS版では，招待制OTPログインと手動同期を利用できます．" }), h("div", { className: "button-row", style: { marginTop: "16px" } }, button("端末間同期を開く", "button-secondary", () => this.navigate("cloud")))),
         h("section", { className: "panel settings-panel" }, h("h2", { text: "保存領域" }), h("p", { text: `現在：${this.repo.mode === "indexeddb" ? "IndexedDB（推奨）" : this.repo.mode === "localstorage" ? "localStorage（簡易）" : "メモリ（一時）"}` }), h("div", { className: "notice notice--warning", style: { marginTop: "16px" } }, h("p", { text: "ブラウザデータの消去や，file:// からGitHub Pagesへの移動では保存領域が変わります．添付を含む場合はZIP，本文だけならJSONを定期的に保存してください．" }))),
       );
@@ -2824,7 +3060,7 @@
       this.dialog.returnValue = "cancel";
       this.dialogTitle.textContent = "paper_tools の使い方";
       this.dialogBody.replaceChildren(
-        h("ol", {}, h("li", { text: "「テンプレート」で組込み構成を選ぶか，手元のテンプレートファイルを登録します．" }), h("li", { text: "「新規作成」で確認済みの目的・方法・結果だけを入力します．" }), h("li", { text: "生成された草稿のTODOと，右側の「助言」にある図・データ不足を確認します．" }), h("li", { text: "英文変換や模擬査読は「AI作業台」で指示文を作り，内容を確認して使用先へ貼り付けます．" }), h("li", { text: "編集後，ZIPバックアップと印刷PDFを保存します．" })),
+        h("ol", {}, h("li", { text: "「テンプレート」で組込み構成を選ぶか，手元のテンプレートファイルを登録します．" }), h("li", { text: "「新規作成」で確認済みの目的・方法・結果だけを入力します．" }), h("li", { text: "エディタの「章構成」で章を整理し，「論証契約」で各章の問題・仮説・根拠・限界を8項目にまとめます．" }), h("li", { text: "生成された草稿のTODOと，右側の「助言」にある図・データ不足を確認します．" }), h("li", { text: "章の深掘り，英文変換，模擬査読は「AI作業台」で指示文を作り，内容を確認して使用先へ貼り付けます．" }), h("li", { text: "編集後，ZIPバックアップと印刷PDFを保存します．" })),
         h("p", { text: "本文で参考文献を引用するときは，登録した引用キーの前に @ を付けます（例：@smith2026）．印刷PDFでは文献番号へ変換されます．" }),
         h("div", { className: "notice", style: { marginTop: "16px" } }, h("p", { text: "index.htmlはそのままダブルクリックで起動できます．Pythonやサーバーは不要です．任意の端末間同期はHTTPS版で明示的に設定し，AI作業台は同期設定の有無にかかわらずプロンプトだけを生成します．" })),
       );

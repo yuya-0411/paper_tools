@@ -6,7 +6,7 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function (root) {
   "use strict";
 
-  const SCHEMA_VERSION = 1;
+  const SCHEMA_VERSION = 2;
   const MAX_BACKUP_BYTES = 100 * 1024 * 1024;
   const MAX_BACKUP_ENTRIES = 2048;
   const DEFAULT_SETTINGS = Object.freeze({
@@ -18,6 +18,7 @@
   });
 
   const RESEARCH_FIELDS = [
+    "centralResearchQuestion",
     "simpleDescription",
     "bulletNotes",
     "achievements",
@@ -52,6 +53,19 @@
     "notes",
   ];
 
+  const CENTRAL_RESEARCH_QUESTION_MAX_CHARS = 5000;
+  const CHAPTER_CONTRACT_MAX_CHARS = 10000;
+  const CHAPTER_CONTRACT_FIELDS = Object.freeze([
+    Object.freeze({ key: "problem", label: "この章が解く問題は何か？" }),
+    Object.freeze({ key: "priorGap", label: "既存研究（または前章）では何が不足しているか？" }),
+    Object.freeze({ key: "proposal", label: "その不足に対して何を提案したか？" }),
+    Object.freeze({ key: "hypothesis", label: "どの仮説を検証するか？" }),
+    Object.freeze({ key: "supportingEvidence", label: "どの実験・解析が仮説を支えるか？" }),
+    Object.freeze({ key: "supportedConclusion", label: "結果から何がいえるか？" }),
+    Object.freeze({ key: "limitations", label: "何は言えないか？（Limitは何か？）" }),
+    Object.freeze({ key: "thesisContribution", label: "博士論文全体の中心研究課題に対して，この章はどの一文で答えるか？" }),
+  ]);
+
   const ALLOWED_EXTENSIONS = new Set([
     "png",
     "jpg",
@@ -83,6 +97,47 @@
       .replace(/\u0000/g, "")
       .replace(/\r\n?/g, "\n")
       .slice(0, limit);
+  }
+
+  function emptyChapterContract() {
+    const contract = {};
+    CHAPTER_CONTRACT_FIELDS.forEach((field) => {
+      contract[field.key] = "";
+    });
+    return contract;
+  }
+
+  function normalizeChapterContract(value) {
+    const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+    const contract = emptyChapterContract();
+    CHAPTER_CONTRACT_FIELDS.forEach((field) => {
+      contract[field.key] = plainText(source[field.key], CHAPTER_CONTRACT_MAX_CHARS);
+    });
+    return contract;
+  }
+
+  function chapterContractProgress(section) {
+    const contract = normalizeChapterContract(section && section.chapterContract);
+    const completed = CHAPTER_CONTRACT_FIELDS.filter((field) => contract[field.key].trim()).length;
+    return Object.freeze({
+      completed,
+      total: CHAPTER_CONTRACT_FIELDS.length,
+      percent: Math.round((completed / CHAPTER_CONTRACT_FIELDS.length) * 100),
+    });
+  }
+
+  function restoreAssetTargets(currentAssets, snapshotAssets) {
+    const targets = new Map();
+    (Array.isArray(snapshotAssets) ? snapshotAssets : []).forEach((asset) => {
+      const id = plainText(asset && asset.id, 120);
+      if (id && !targets.has(id)) targets.set(id, plainText(asset && asset.target, 100));
+    });
+    return (Array.isArray(currentAssets) ? currentAssets : []).map((asset) => {
+      const copy = Object.assign({}, asset);
+      const id = plainText(copy.id, 120);
+      if (targets.has(id)) copy.target = targets.get(id);
+      return copy;
+    });
   }
 
   function safeFilename(value, fallback) {
@@ -281,8 +336,10 @@
           id: section.id,
           title: section.title,
           content: "",
+          chapterContract: emptyChapterContract(),
           updatedAt: createdAt,
         })),
+        outlineCustomized: false,
         advice: [],
       },
       history: [],
@@ -292,6 +349,10 @@
 
   function normalizeProject(project) {
     const source = project || {};
+    const sourceSchemaVersion = Number(source.schemaVersion);
+    if (Number.isInteger(sourceSchemaVersion) && sourceSchemaVersion > SCHEMA_VERSION) {
+      throw new Error(`このプロジェクトは新しい形式（v${sourceSchemaVersion}）です．paper_toolsを更新してください．`);
+    }
     const embeddedTemplate = normalizeTemplateDefinition(source.templateDefinition);
     const template = embeddedTemplate && embeddedTemplate.id === source.templateId
       ? embeddedTemplate
@@ -329,7 +390,10 @@
       : [];
     normalized.research = {};
     for (const key of RESEARCH_FIELDS) {
-      normalized.research[key] = plainText(source.research && source.research[key], 50000);
+      normalized.research[key] = plainText(
+        source.research && source.research[key],
+        key === "centralResearchQuestion" ? CENTRAL_RESEARCH_QUESTION_MAX_CHARS : 50000,
+      );
     }
     if (!normalized.research.experimentalConditions && normalized.research.experiment) {
       normalized.research.experimentalConditions = normalized.research.experiment;
@@ -390,30 +454,49 @@
       : [];
     const sourceManuscript = source.manuscript || {};
     const existingSections = Array.isArray(sourceManuscript.sections) ? sourceManuscript.sections : [];
-    const sectionDefinitions = template.sections.slice();
-    const knownSectionIds = new Set(sectionDefinitions.map((section) => section.id));
-    existingSections.slice(0, 100).forEach((section, index) => {
-      const id = plainText(section && section.id, 100) || `section-${index + 1}`;
-      if (["__proto__", "prototype", "constructor"].includes(id) || knownSectionIds.has(id)) return;
-      knownSectionIds.add(id);
-      sectionDefinitions.push({ id, title: plainText(section.title || id, 300) });
+    const outlineCustomized = Boolean(sourceManuscript.outlineCustomized);
+    const templateById = new Map(template.sections.map((section) => [section.id, section]));
+    const sectionDefinitions = [];
+    const knownSectionIds = new Set();
+    const definitionSources = outlineCustomized && existingSections.length
+      ? existingSections.slice(0, 100)
+      : template.sections.concat(
+          existingSections
+            .filter((section) => !templateById.has(plainText(section && section.id, 100)))
+            .slice(0, Math.max(0, 100 - template.sections.length)),
+        );
+    definitionSources.forEach((section, index) => {
+      const candidate = section && typeof section === "object" ? section : {};
+      const rawId = plainText(candidate.id, 100).trim() || `section-${index + 1}`;
+      if (["__proto__", "prototype", "constructor"].includes(rawId) || knownSectionIds.has(rawId)) return;
+      knownSectionIds.add(rawId);
+      const templateSection = templateById.get(rawId);
+      sectionDefinitions.push(Object.assign({}, templateSection || {}, candidate, { id: rawId }));
     });
+    if (!sectionDefinitions.length) {
+      template.sections.slice(0, 100).forEach((section) => sectionDefinitions.push(section));
+    }
     normalized.manuscript = {
       generatedAt: sourceManuscript.generatedAt || null,
+      outlineCustomized,
       sections: sectionDefinitions.map((section) => {
         const existing = existingSections.find((item) => item.id === section.id) || {};
+        const templateSection = templateById.get(section.id);
         const defaultTitle = normalized.language === "en"
           ? section.titleEn || section.title || section.id
           : section.titleJa || section.title || section.id;
         const existingTitle = plainText(existing.title, 300);
-        const knownDefaultTitles = [section.title, section.titleJa, section.titleEn]
+        const knownDefaultTitles = templateSection
+          ? [templateSection.title, templateSection.titleJa, templateSection.titleEn]
           .map((value) => plainText(value, 300))
-          .filter(Boolean);
+          .filter(Boolean)
+          : [];
         const usesKnownDefault = existingTitle && knownDefaultTitles.includes(existingTitle);
         return {
           id: section.id,
           title: plainText(usesKnownDefault ? defaultTitle : existingTitle || defaultTitle, 300),
           content: plainText(existing.content, 100000),
+          chapterContract: normalizeChapterContract(existing.chapterContract || section.chapterContract),
           updatedAt: existing.updatedAt || normalized.updatedAt,
         };
       }),
@@ -513,10 +596,17 @@
     MAX_BACKUP_ENTRIES,
     DEFAULT_SETTINGS,
     RESEARCH_FIELDS,
+    CENTRAL_RESEARCH_QUESTION_MAX_CHARS,
+    CHAPTER_CONTRACT_FIELDS,
+    CHAPTER_CONTRACT_MAX_CHARS,
     ALLOWED_EXTENSIONS,
     nowIso,
     makeId,
     plainText,
+    emptyChapterContract,
+    normalizeChapterContract,
+    chapterContractProgress,
+    restoreAssetTargets,
     safeFilename,
     extensionOf,
     normalizeCitationKey,

@@ -26,11 +26,13 @@
           <section class="notice notice--warning">
             <strong>原稿を外部へ保存する設定です</strong>
             <p>未発表原稿や個人情報を扱う前に、所属組織がSupabaseの利用を許可しているか確認してください。</p>
+            <p>章立て、中心研究課題、各章の論証契約も、対象プロジェクトを明示的に同期した場合は原稿とともに保存されます。論証契約は法的契約や検証済み証拠ではなく、執筆上の整理メモです。</p>
           </section>
 
           <section class="panel settings-panel">
             <h2>1．Supabaseを用意する</h2>
             <p>専用プロジェクトを作り、DashboardのSQL Editorで <code>supabase/schema.sql</code> を実行します。本人だけを許可するRLSと非公開Storageが作成されます。</p>
+            <p>アプリを更新した場合も最新のSQLを再実行します。保存RPCは版番号と <code>schemaVersion</code> を同時に検査し、古い公開ページが新しい章立て・論証契約を消す更新を競合として停止します。</p>
           </section>
 
           <section class="panel settings-panel">
@@ -55,7 +57,7 @@
 
           <section class="notice">
             <strong>普段の編集</strong>
-            <p>編集は先に端末へ保存されます。別端末へ反映するときだけ同期ボタンを押します。ログアウトしても端末内コピーは残ります。</p>
+            <p>編集は先に端末へ保存されます。別端末へ反映するときだけ同期ボタンを押します。ログインだけでは送信されず、ログアウトしても端末内コピーは残ります。論証契約は章本文、Typst、印刷PDFへ自動挿入されません。</p>
           </section>
 
           <div class="button-row">

@@ -401,6 +401,265 @@ async function main() {
     const projectIds = projectEvaluation.result?.value;
     if (!projectIds?.primaryId || !projectIds?.secondaryId) throw new Error("ブラウザースモーク用プロジェクトを作成できませんでした．");
 
+    routes.push(await waitForRoute(
+      session,
+      `#editor/${encodeURIComponent(projectIds.primaryId)}`,
+      "章構成を編集",
+    ));
+    const outlineOpenEvaluation = await session.command("Runtime.evaluate", {
+      expression: `(() => {
+        const trigger = document.getElementById("open-chapter-outline");
+        if (!trigger) return false;
+        trigger.click();
+        return true;
+      })()`,
+      returnByValue: true,
+    });
+    if (!outlineOpenEvaluation.result?.value) {
+      throw new Error("章構成パネルを開く操作を開始できませんでした．");
+    }
+    await waitForEvaluation(
+      session,
+      `(() => ({
+        hasOutline: Boolean(document.getElementById("chapter-outline")),
+        hasAddButton: Boolean(document.getElementById("add-chapter")),
+      }))()`,
+      (value) => Boolean(value && value.hasOutline && value.hasAddButton),
+      "章構成パネルを表示できませんでした",
+    );
+
+    const addChapterEvaluation = await session.command("Runtime.evaluate", {
+      expression: `(() => {
+        const trigger = document.getElementById("add-chapter");
+        if (!trigger) return null;
+        trigger.click();
+        const panel = document.querySelector(".chapter-contract-panel");
+        return {
+          chapterId: panel?.dataset?.chapterId || "",
+          initialProgress: document.getElementById("chapter-contract-progress")?.textContent || "",
+        };
+      })()`,
+      returnByValue: true,
+    });
+    const addedChapter = addChapterEvaluation.result?.value;
+    if (!addedChapter?.chapterId || addedChapter.initialProgress !== "0/8項目を入力済み") {
+      throw new Error(`章を追加して空の論証契約を開けませんでした: ${JSON.stringify(addedChapter)}`);
+    }
+    const chapterId = addedChapter.chapterId;
+    const chapterTitle = "ブラウザー章構成テスト";
+    const centralQuestion = "SMOKE_CENTRAL_RESEARCH_QUESTION";
+    const contractProblem = "SMOKE_CHAPTER_PROBLEM";
+    const contractHypothesis = "SMOKE_CHAPTER_HYPOTHESIS";
+    const contractLimitations = "SMOKE_CHAPTER_LIMITATIONS";
+    const chapterInputEvaluation = await session.command("Runtime.evaluate", {
+      expression: `(() => {
+        const setInput = (control, value) => {
+          if (!control) return false;
+          control.value = value;
+          control.dispatchEvent(new Event("input", { bubbles: true }));
+          return true;
+        };
+        const changed = [
+          setInput(document.getElementById(${JSON.stringify(`outline-title-${chapterId}`)}), ${JSON.stringify(chapterTitle)}),
+          setInput(document.getElementById("central-research-question"), ${JSON.stringify(centralQuestion)}),
+          setInput(document.getElementById("chapter-contract-problem"), ${JSON.stringify(contractProblem)}),
+          setInput(document.getElementById("chapter-contract-hypothesis"), ${JSON.stringify(contractHypothesis)}),
+          setInput(document.getElementById("chapter-contract-limitations"), ${JSON.stringify(contractLimitations)}),
+        ];
+        return {
+          allInputsFound: changed.every(Boolean),
+          progress: document.getElementById("chapter-contract-progress")?.textContent || "",
+          title: document.getElementById(${JSON.stringify(`outline-title-${chapterId}`)})?.value || "",
+        };
+      })()`,
+      returnByValue: true,
+    });
+    const chapterInput = chapterInputEvaluation.result?.value;
+    if (!chapterInput?.allInputsFound || chapterInput.progress !== "3/8項目を入力済み" || chapterInput.title !== chapterTitle) {
+      throw new Error(`章名・論証契約・進捗を更新できませんでした: ${JSON.stringify(chapterInput)}`);
+    }
+    const chapterSaveEvaluation = await session.command("Runtime.evaluate", {
+      expression: `(async () => {
+        const app = window.paperToolsApp;
+        const completed = await app.flushPendingSaves();
+        const stored = await app.repo.getProject(${JSON.stringify(projectIds.primaryId)});
+        const chapter = stored?.manuscript?.sections?.find((item) => item.id === ${JSON.stringify(chapterId)});
+        return {
+          completed,
+          storedTitle: chapter?.title || "",
+          storedProgress: chapter ? PaperTools.chapterContractProgress(chapter).completed : -1,
+        };
+      })()`,
+      awaitPromise: true,
+      returnByValue: true,
+    });
+    const chapterOutline = chapterSaveEvaluation.result?.value;
+    if (!chapterOutline?.completed || chapterOutline.storedTitle !== chapterTitle || chapterOutline.storedProgress !== 3) {
+      throw new Error(`章構成を端末へ保存できませんでした: ${JSON.stringify(chapterOutline)}`);
+    }
+
+    const deepenNavigationEvaluation = await session.command("Runtime.evaluate", {
+      expression: `(() => {
+        const trigger = document.querySelector('.chapter-contract-panel [data-action="deepen-chapter"]');
+        if (!trigger) return false;
+        trigger.click();
+        return true;
+      })()`,
+      returnByValue: true,
+    });
+    if (!deepenNavigationEvaluation.result?.value) {
+      throw new Error("章の深掘りプロンプト画面へ移動できませんでした．");
+    }
+    const chapterAssistantHash = `#assistant/${encodeURIComponent(projectIds.primaryId)}/${encodeURIComponent(chapterId)}`;
+    await waitForEvaluation(
+      session,
+      `(() => ({
+        hash: location.hash,
+        type: document.getElementById("assistant-type")?.value || "",
+        scope: document.getElementById("assistant-scope")?.value || "",
+        scopeDisabled: Boolean(document.getElementById("assistant-scope")?.disabled),
+        sectionId: document.getElementById("assistant-section")?.value || "",
+      }))()`,
+      (value) => Boolean(
+        value
+        && value.hash === chapterAssistantHash
+        && value.type === "deepen-chapter"
+        && value.scope === "section"
+        && value.scopeDisabled
+        && value.sectionId === chapterId
+      ),
+      "選択章を引き継いだ深掘りプロンプト画面を表示できませんでした",
+    );
+    await session.command("Runtime.evaluate", {
+      expression: `(() => {
+        const trigger = Array.from(document.querySelectorAll(".assistant-controls button"))
+          .find((item) => item.textContent.trim() === "プロンプトを作成");
+        if (!trigger) return false;
+        trigger.click();
+        return true;
+      })()`,
+      returnByValue: true,
+    });
+    const chapterPrompt = await waitForEvaluation(
+      session,
+      `(() => {
+        const output = document.getElementById("assistant-prompt-output")?.value || "";
+        const startMarker = "## SOURCE_DATA_JSON_BEGIN\\n";
+        const endMarker = "\\n## SOURCE_DATA_JSON_END";
+        const start = output.indexOf(startMarker);
+        const end = output.lastIndexOf(endMarker);
+        let source = null;
+        try {
+          source = start >= 0 && end > start
+            ? JSON.parse(output.slice(start + startMarker.length, end))
+            : null;
+        } catch (_error) {
+          source = null;
+        }
+        const disclosedChapter = source?.manuscriptSections?.[0];
+        return {
+          promptChars: output.length,
+          task: output.includes('"task": "deepen-chapter"'),
+          type: document.getElementById("assistant-type")?.value || "",
+          scope: document.getElementById("assistant-scope")?.value || "",
+          sectionId: document.getElementById("assistant-section")?.value || "",
+          sourceKeys: source ? Object.keys(source).sort().join(",") : "",
+          projectKeys: source?.project ? Object.keys(source.project).sort().join(",") : "",
+          sectionCount: source?.manuscriptSections?.length ?? -1,
+          disclosedId: disclosedChapter?.id || "",
+          disclosedTitle: disclosedChapter?.title || "",
+          disclosedProblem: disclosedChapter?.chapterContract?.problem || "",
+          disclosedHypothesis: disclosedChapter?.chapterContract?.hypothesis || "",
+          disclosedLimitations: disclosedChapter?.chapterContract?.limitations || "",
+          disclosedCentralQuestion: source?.project?.centralResearchQuestion || "",
+          leakedOtherChapter: output.includes("これは英文変換対象の日本語本文です．"),
+          leakedProjectTitle: output.includes("UI smoke paper"),
+        };
+      })()`,
+      (value) => Boolean(
+        value
+        && value.promptChars > 500
+        && value.task
+        && value.type === "deepen-chapter"
+        && value.scope === "section"
+        && value.sectionId === chapterId
+        && value.sourceKeys === "manuscriptSections,project,sourcePolicy"
+        && value.projectKeys === "centralResearchQuestion"
+        && value.sectionCount === 1
+        && value.disclosedId === chapterId
+        && value.disclosedTitle === chapterTitle
+        && value.disclosedProblem === contractProblem
+        && value.disclosedHypothesis === contractHypothesis
+        && value.disclosedLimitations === contractLimitations
+        && value.disclosedCentralQuestion === centralQuestion
+        && !value.leakedOtherChapter
+        && !value.leakedProjectTitle
+      ),
+      "章深掘りプロンプトの対象・契約・最小開示を確認できませんでした",
+    );
+
+    routes.push(await waitForRoute(
+      session,
+      `#editor/${encodeURIComponent(projectIds.primaryId)}`,
+      "章構成を編集",
+    ));
+    await session.command("Page.reload", { ignoreCache: true });
+    await waitForEvaluation(
+      session,
+      `(() => ({
+        hash: location.hash,
+        ready: Boolean(window.paperToolsApp?.currentProject?.id === ${JSON.stringify(projectIds.primaryId)}),
+        hasOutlineButton: Boolean(document.getElementById("open-chapter-outline")),
+      }))()`,
+      (value) => Boolean(
+        value
+        && value.hash === `#editor/${encodeURIComponent(projectIds.primaryId)}`
+        && value.ready
+        && value.hasOutlineButton
+      ),
+      "再読み込み後に章プロジェクトを開けませんでした",
+    );
+    const chapterPersistence = await waitForEvaluation(
+      session,
+      `(async () => {
+        try {
+          const app = window.paperToolsApp;
+          const stored = await app.repo.getProject(${JSON.stringify(projectIds.primaryId)});
+          const chapter = stored?.manuscript?.sections?.find((item) => item.id === ${JSON.stringify(chapterId)});
+          document.getElementById("open-chapter-outline")?.click();
+          const row = Array.from(document.querySelectorAll(".outline-row"))
+            .find((item) => item.dataset.chapterId === ${JSON.stringify(chapterId)});
+          row?.querySelector('[data-chapter-action="open-contract"]')?.click();
+          return {
+            stored: Boolean(chapter),
+            outlineCustomized: Boolean(stored?.manuscript?.outlineCustomized),
+            title: chapter?.title || "",
+            progress: chapter ? PaperTools.chapterContractProgress(chapter).completed : -1,
+            visibleProgress: document.getElementById("chapter-contract-progress")?.textContent || "",
+            centralQuestion: document.getElementById("central-research-question")?.value || "",
+            problem: document.getElementById("chapter-contract-problem")?.value || "",
+            hypothesis: document.getElementById("chapter-contract-hypothesis")?.value || "",
+            limitations: document.getElementById("chapter-contract-limitations")?.value || "",
+          };
+        } catch (error) {
+          return { error: error?.stack || error?.message || String(error) };
+        }
+      })()`,
+      (value) => Boolean(
+        value
+        && value.stored
+        && value.outlineCustomized
+        && value.title === chapterTitle
+        && value.progress === 3
+        && value.visibleProgress === "3/8項目を入力済み"
+        && value.centralQuestion === centralQuestion
+        && value.problem === contractProblem
+        && value.hypothesis === contractHypothesis
+        && value.limitations === contractLimitations
+      ),
+      "再読み込み後に章構成を復元できませんでした",
+    );
+
     await session.command("Runtime.evaluate", {
       expression: `(() => {
         const app = window.paperToolsApp;
@@ -619,7 +878,7 @@ async function main() {
       "クラウド同期のHTML初期設定ページを表示できませんでした",
     );
     process.stdout.write(
-      `Browser smoke test passed (${path.basename(browserExecutable)}): ${JSON.stringify({ home: state, routes, templateRegistration, cloudUi, cloudConflict, cloudIdentity, prompt, projectSwitch, setupPage })}\n`,
+      `Browser smoke test passed (${path.basename(browserExecutable)}): ${JSON.stringify({ home: state, routes, templateRegistration, chapterOutline, chapterPrompt, chapterPersistence, cloudUi, cloudConflict, cloudIdentity, prompt, projectSwitch, setupPage })}\n`,
     );
   } catch (error) {
     if (stderr.trim()) {

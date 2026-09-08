@@ -47,6 +47,42 @@ test("保存RPCと制約はpayloadのID・型・4MiB上限を強制する", () =
   assert.match(schema, /constraint projects_payload_project_id_matches check/i);
 });
 
+test("保存RPCはschemaVersionを安全な正整数へ正規化する", () => {
+  const body = functionBody("save_project");
+  assert.match(body, /v_new_schema_version bigint/i);
+  assert.match(
+    body,
+    /jsonb_extract_path\(new_payload, 'schemaVersion'\) is null then\s+v_new_schema_version := 1/i,
+  );
+  assert.match(
+    body,
+    /jsonb_typeof\([\s\S]*?jsonb_extract_path\(new_payload, 'schemaVersion'\)[\s\S]*?\) <> 'number'/i,
+  );
+  assert.match(
+    body,
+    /jsonb_extract_path_text\(new_payload, 'schemaVersion'\)[\s\S]*?!~ '\^\[1-9\]\[0-9\]\{0,8\}\$'/i,
+  );
+  assert.match(body, /Project schemaVersion must be a positive integer/i);
+});
+
+test("保存RPCは既存schemaVersionより古いpayloadを原子的に上書きしない", () => {
+  const body = functionBody("save_project");
+  const update = body.match(
+    /update public\.projects as p[\s\S]*?returning p\.cloud_id, p\.revision, p\.updated_at/i,
+  );
+  assert.ok(update, "save_project のUPDATE文が見つかりません");
+  assert.match(update[0], /p\.revision = expected_revision[\s\S]*?and case/i);
+  assert.match(
+    update[0],
+    /jsonb_extract_path\([\s\S]*?p\.payload,[\s\S]*?'schemaVersion'[\s\S]*?\) is null then true/i,
+  );
+  assert.match(
+    update[0],
+    /v_new_schema_version >= \([\s\S]*?jsonb_extract_path_text\(p\.payload, 'schemaVersion'\)[\s\S]*?\)::bigint/i,
+  );
+  assert.match(update[0], /else false\s+end/i);
+});
+
 test("削除RPCは行ロック・revision・明示的な空assetsをすべて要求する", () => {
   const body = functionBody("delete_project");
   assert.match(body, /for update/i);

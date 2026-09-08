@@ -85,6 +85,30 @@
       .trim();
   }
 
+  function normalizeChapterContract(value) {
+    if (typeof namespace.normalizeChapterContract === "function") {
+      return namespace.normalizeChapterContract(value);
+    }
+    var source = isObject(value) ? value : {};
+    var fields = Array.isArray(namespace.CHAPTER_CONTRACT_FIELDS)
+      ? namespace.CHAPTER_CONTRACT_FIELDS
+      : [
+          { key: "problem" },
+          { key: "priorGap" },
+          { key: "proposal" },
+          { key: "hypothesis" },
+          { key: "supportingEvidence" },
+          { key: "supportedConclusion" },
+          { key: "limitations" },
+          { key: "thesisContribution" },
+        ];
+    var contract = {};
+    fields.forEach(function (field) {
+      contract[field.key] = normalizeText(source[field.key]);
+    });
+    return contract;
+  }
+
   function sourcesFor(project) {
     var source = isObject(project) ? project : {};
     var candidates = [
@@ -232,6 +256,16 @@
 
   function normalizeProject(project) {
     var source = isObject(project) ? project : {};
+    var sourceSchemaVersion = Number(source.schemaVersion);
+    if (
+      Number.isInteger(sourceSchemaVersion) &&
+      Number.isInteger(namespace.SCHEMA_VERSION) &&
+      sourceSchemaVersion > namespace.SCHEMA_VERSION
+    ) {
+      throw new Error(
+        "このプロジェクトは新しい形式（v" + sourceSchemaVersion + "）です．paper_toolsを更新してください．"
+      );
+    }
     var templateId = readValue(project, ["templateId", "template_id"]);
     var embeddedTemplate = typeof namespace.normalizeTemplateDefinition === "function"
       ? namespace.normalizeTemplateDefinition(source.templateDefinition)
@@ -270,6 +304,7 @@
       },
       references: normalizeReferences(project),
       assets: normalizeAssets(project),
+      outlineCustomized: Boolean(isObject(source.manuscript) && source.manuscript.outlineCustomized),
       overallInstruction: [explicitInstruction, presetInstruction].filter(Boolean).join(" / "),
       sectionInstructions:
         Object.keys(readObject(project, ["sectionInstructions", "section_instructions"])).length
@@ -843,17 +878,32 @@
           templateSection = candidate;
           return true;
         }
-        return false;
+          return false;
       });
+      var valueTitle = normalizeText(value.title);
+      var templateTitles = templateSection
+        ? [
+            normalizeText(templateSection.title),
+            normalizeText(templateSection.titleJa || templateSection.title_ja),
+            normalizeText(templateSection.titleEn || templateSection.title_en),
+          ].filter(Boolean)
+        : [];
+      var customTitle = templateSection && valueTitle && templateTitles.indexOf(valueTitle) === -1
+        ? valueTitle
+        : "";
       return {
         id: id,
         content: normalizeText(value.content || value.body || value.text),
         preserveContent: !templateSection,
-        title: normalizeText(value.title) || (templateSection && templateSection.title) || id,
+        chapterContract: normalizeChapterContract(value.chapterContract),
+        updatedAt: value.updatedAt,
+        title: valueTitle || (templateSection && templateSection.title) || id,
         titleJa:
+          customTitle ||
           normalizeText(value.titleJa || value.title_ja) ||
           (templateSection && normalizeText(templateSection.titleJa || templateSection.title_ja)),
         titleEn:
+          customTitle ||
           normalizeText(value.titleEn || value.title_en) ||
           (templateSection && normalizeText(templateSection.titleEn || templateSection.title_en)),
         guidance:
@@ -872,6 +922,8 @@
         title: sectionTitle(spec, model.language),
         content: content,
         text: content,
+        chapterContract: normalizeChapterContract(spec.chapterContract),
+        updatedAt: spec.updatedAt,
       };
     });
     var byId = Object.create(null);
@@ -890,6 +942,7 @@
       title: title,
       language: model.language,
       templateId: model.templateId,
+      outlineCustomized: model.outlineCustomized,
       metadata: {
         documentType: model.editorial.documentType,
         field: model.editorial.field,
